@@ -29,10 +29,28 @@ app.use(helmet({
 }));
 
 // CORS configuration
+const allowedOrigins = NODE_ENV === 'production' 
+  ? CLIENT_URL.split(',').map(url => url.trim().replace(/\/$/, ''))
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+
+console.log('🔒 Allowed CORS origins:', allowedOrigins);
+
 const corsOptions = {
-  origin: NODE_ENV === 'production' 
-    ? CLIENT_URL.split(',').map(url => url.trim())
-    : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      callback(null, true);
+    } else {
+      console.warn(`🚫 CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST']
 };
