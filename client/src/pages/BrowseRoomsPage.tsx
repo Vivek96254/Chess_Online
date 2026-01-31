@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/gameStore';
+import { socketService } from '../services/socket';
 import type { RoomListing, RoomState } from '../types';
 
 const SERVER_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
@@ -28,7 +29,6 @@ export default function BrowseRoomsPage() {
 
   // Listen for socket room list updates
   useEffect(() => {
-    const { socketService } = require('../services/socket');
     socketService.setCallbacks({
       onRoomListUpdated: () => {
         fetchRooms();

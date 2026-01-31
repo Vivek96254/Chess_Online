@@ -7,7 +7,8 @@ import type {
   RoomResponse,
   MoveResponse,
   BaseResponse,
-  ChatMessage
+  ChatMessage,
+  RoomSettings
 } from '../types';
 
 // Server URL from environment or default

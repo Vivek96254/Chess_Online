@@ -12,7 +12,7 @@ interface GameInfoProps {
 }
 
 export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyCode }: GameInfoProps) {
-  const { resign, offerDraw, gameState, latency, playerId, kickPlayer, lockRoom, updateRoomSettings } = useGameStore();
+  const { resign, offerDraw, gameState, latency, playerId, kickPlayer, lockRoom } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [showKickMenu, setShowKickMenu] = useState(false);

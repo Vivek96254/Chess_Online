@@ -21,10 +21,10 @@ export default function HomePage() {
   const [showSpectateModal, setShowSpectateModal] = useState(false);
   const [showJoinModeModal, setShowJoinModeModal] = useState(false);
   const [timeControl, setTimeControl] = useState<'none' | 'rapid' | 'blitz'>('none');
-  const [isPrivate, setIsPrivate] = useState(false);
-  const [allowJoin, setAllowJoin] = useState(true);
-  const [allowSpectators, setAllowSpectators] = useState(true);
-  const [roomName, setRoomName] = useState('');
+  const [isPrivate] = useState(false);
+  const [allowJoin] = useState(true);
+  const [allowSpectators] = useState(true);
+  const [roomName] = useState('');
 
   useEffect(() => {
     // Check for room in URL params

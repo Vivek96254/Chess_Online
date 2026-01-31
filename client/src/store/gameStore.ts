@@ -8,7 +8,8 @@ import type {
   ConnectionStatus,
   ChatMessage,
   Piece,
-  BoardState
+  BoardState,
+  RoomSettings
 } from '../types';
 
 interface GameStore {
