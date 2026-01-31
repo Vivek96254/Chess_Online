@@ -43,63 +43,46 @@ export default function GamePage() {
         return;
       }
 
-      // Wait for connection to be established
-      if (connectionStatus !== 'connected') {
-        // Wait a bit for connection
-        await new Promise(resolve => setTimeout(resolve, 500));
-        if (connectionStatus !== 'connected') {
-          setIsLoading(false);
-          setShowJoinModeModal(true);
-          return;
-        }
-      }
-
       // If already in this room, no need to rejoin
       if (room?.roomId === roomId) {
         setIsLoading(false);
+        setShowJoinModeModal(false);
         return;
       }
 
-      // Check if user came from outside (direct link) - show join mode selection
-      // Show modal if: not already in room AND (no referrer OR referrer is from different domain)
-      const cameFromLink = !room && (
-        !document.referrer || 
-        !document.referrer.includes(window.location.host)
-      );
-      
-      if (cameFromLink) {
+      // Wait for connection to be established (but don't wait too long)
+      if (connectionStatus !== 'connected') {
+        // Wait a bit for connection
+        let attempts = 0;
+        while (attempts < 10) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+          // Re-check connection status from store
+          const currentStatus = useGameStore.getState().connectionStatus;
+          if (currentStatus === 'connected') break;
+        }
+      }
+
+      // If not already in a room, show join mode selection modal
+      // This handles direct link navigation
+      if (!room) {
         setIsLoading(false);
         setShowJoinModeModal(true);
         return;
       }
 
-      // Try to join or spectate (for programmatic navigation)
-      setIsLoading(true);
-      
-      if (playerName) {
-        const joined = await joinRoom(roomId);
-        if (!joined) {
-          // Try to spectate instead
-          const spectated = await spectateRoom(roomId);
-          if (!spectated) {
-            navigate('/');
-            return;
-          }
-        }
-      } else {
-        // Spectate without name
-        const spectated = await spectateRoom(roomId);
-        if (!spectated) {
-          navigate('/');
-          return;
-        }
+      // If in a different room, show modal to join new room
+      if (room.roomId !== roomId) {
+        setIsLoading(false);
+        setShowJoinModeModal(true);
+        return;
       }
       
       setIsLoading(false);
     };
 
     initRoom();
-  }, [roomId, room?.roomId, playerName, joinRoom, spectateRoom, navigate, connectionStatus]);
+  }, [roomId, room?.roomId, connectionStatus]);
 
   const handleLeave = async () => {
     await leaveRoom();
