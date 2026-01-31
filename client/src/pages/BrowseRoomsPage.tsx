@@ -5,7 +5,7 @@ import { useGameStore } from '../store/gameStore';
 import { socketService } from '../services/socket';
 import type { RoomListing, RoomState } from '../types';
 
-const SERVER_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+const SERVER_URL = (import.meta.env.VITE_WS_URL || 'http://localhost:3001').replace(/\/$/, '');
 
 export default function BrowseRoomsPage() {
   const navigate = useNavigate();
