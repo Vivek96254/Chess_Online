@@ -180,7 +180,6 @@ export default function GamePage() {
           playerColor={playerColor}
           isSpectator={isSpectator}
           onLeave={() => setShowLeaveConfirm(true)}
-          onCopyLink={copyRoomLink}
           onCopyCode={copyRoomCode}
         />
       </motion.aside>

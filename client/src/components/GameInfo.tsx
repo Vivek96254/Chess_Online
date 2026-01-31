@@ -8,11 +8,10 @@ interface GameInfoProps {
   playerColor: PlayerColor | null;
   isSpectator: boolean;
   onLeave: () => void;
-  onCopyLink: () => void;
   onCopyCode: () => void;
 }
 
-export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyLink, onCopyCode }: GameInfoProps) {
+export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyCode }: GameInfoProps) {
   const { resign, offerDraw, gameState, latency } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
