@@ -454,9 +454,19 @@ export class RoomManager {
 
   /**
    * Check if player is in a room
+   * Returns false if the player's room is finished (allowing them to create/join new rooms)
    */
   isPlayerInRoom(playerId: string): boolean {
-    return this.playerRooms.has(playerId);
+    const roomId = this.playerRooms.get(playerId);
+    if (!roomId) return false;
+    
+    const room = this.rooms.get(roomId);
+    // If room is finished, player is not considered "in a room" for the purpose of joining new rooms
+    if (room && room.state === 'finished') {
+      return false;
+    }
+    
+    return true;
   }
 
   /**
