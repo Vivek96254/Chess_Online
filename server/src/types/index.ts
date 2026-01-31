@@ -43,11 +43,27 @@ export interface SerializableRoom {
   settings: RoomSettings;
 }
 
+// Room listing for browse page
+export interface RoomListing {
+  roomId: string;
+  roomName: string | null;
+  hostName: string;
+  state: RoomState;
+  playerCount: number; // 1 or 2
+  spectatorCount: number;
+  timeControl: TimeControl | null;
+  createdAt: number;
+  lastActivity: number;
+}
+
 // Room settings
 export interface RoomSettings {
   timeControl: TimeControl | null;
   allowSpectators: boolean;
+  allowJoin: boolean; // Allow players to join as opponent
   isPrivate: boolean;
+  roomName?: string; // Optional room name
+  isLocked: boolean; // Host can lock room to prevent new joins
 }
 
 // Time control
@@ -130,6 +146,8 @@ export interface ServerToClientEvents {
   'room:spectating': (data: { room: SerializableRoom; spectatorId: string }) => void;
   'room:updated': (room: SerializableRoom) => void;
   'room:closed': (data: { roomId: string; reason: string }) => void;
+  'room:list-updated': () => void; // Notify when public room list changes
+  'room:kicked': (data: { roomId: string; reason: string }) => void;
   
   'game:started': (gameState: GameState) => void;
   'game:move': (data: { move: MoveRecord; gameState: GameState }) => void;
@@ -158,6 +176,9 @@ export interface ClientToServerEvents {
   'room:join': (payload: JoinRoomPayload, callback: (response: RoomResponse) => void) => void;
   'room:spectate': (payload: SpectateRoomPayload, callback: (response: RoomResponse) => void) => void;
   'room:leave': (callback: (response: BaseResponse) => void) => void;
+  'room:kick': (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => void;
+  'room:lock': (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => void;
+  'room:update-settings': (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => void;
   
   'game:move': (payload: MakeMovePayload, callback: (response: MoveResponse) => void) => void;
   'game:resign': (payload: ResignPayload, callback: (response: BaseResponse) => void) => void;
@@ -196,7 +217,10 @@ export const CreateRoomSchema = z.object({
       increment: z.number().min(0).max(60)
     }).nullable().optional(),
     allowSpectators: z.boolean().optional(),
-    isPrivate: z.boolean().optional()
+    allowJoin: z.boolean().optional(),
+    isPrivate: z.boolean().optional(),
+    roomName: z.string().min(1).max(50).trim().optional(),
+    isLocked: z.boolean().optional()
   }).optional()
 });
 

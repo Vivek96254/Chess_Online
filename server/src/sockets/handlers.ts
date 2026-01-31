@@ -17,7 +17,8 @@ import type {
   ChatMessagePayload,
   RoomResponse,
   BaseResponse,
-  MoveResponse
+  MoveResponse,
+  RoomSettings
 } from '../types/index.js';
 
 type ChessSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -124,6 +125,9 @@ export function registerSocketHandlers(
         playerId: socket.id,
         color
       });
+
+      // Notify public room list watchers
+      io.emit('room:list-updated');
 
       console.log(`👤 Player joined room ${room.roomId}: ${validated.playerName}`);
     } catch (error) {
@@ -420,6 +424,182 @@ export function registerSocketHandlers(
     } catch (error) {
       console.error('Error sending chat:', error);
       callback({ success: false, error: 'Failed to send message' });
+    }
+  });
+
+  // Host controls: Kick player
+  socket.on('room:kick', async (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => {
+    try {
+      const result = await roomManager.kickPlayer(payload.roomId, socket.id, payload.playerId);
+      
+      if (!result.success) {
+        callback({ success: false, error: 'Cannot kick player' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        // Notify the kicked player
+        io.to(payload.playerId).emit('room:kicked', {
+          roomId: payload.roomId,
+          reason: 'You were kicked from the room'
+        });
+
+        // Notify room about the kick
+        if (result.wasPlayer && result.shouldEndGame && room.gameState) {
+          io.to(payload.roomId).emit('game:ended', {
+            gameState: room.gameState,
+            reason: 'Player was kicked'
+          });
+        }
+
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers
+        io.emit('room:list-updated');
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error kicking player:', error);
+      callback({ success: false, error: 'Failed to kick player' });
+    }
+  });
+
+  // Host controls: Lock/unlock room
+  socket.on('room:lock', async (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => {
+    try {
+      const success = await roomManager.setRoomLocked(payload.roomId, socket.id, payload.locked);
+      
+      if (!success) {
+        callback({ success: false, error: 'Cannot lock/unlock room' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers
+        io.emit('room:list-updated');
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error locking room:', error);
+      callback({ success: false, error: 'Failed to lock/unlock room' });
+    }
+  });
+
+  // Host controls: Update room settings
+  socket.on('room:update-settings', async (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => {
+    try {
+      const success = await roomManager.updateRoomSettings(payload.roomId, socket.id, payload.settings);
+      
+      if (!success) {
+        callback({ success: false, error: 'Cannot update room settings' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers if visibility changed
+        if (payload.settings.isPrivate !== undefined || payload.settings.allowJoin !== undefined) {
+          io.emit('room:list-updated');
+        }
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error updating room settings:', error);
+      callback({ success: false, error: 'Failed to update room settings' });
+    }
+  });
+
+  // Host controls: Kick player
+  socket.on('room:kick', async (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => {
+    try {
+      const result = await roomManager.kickPlayer(payload.roomId, socket.id, payload.playerId);
+      
+      if (!result.success) {
+        callback({ success: false, error: 'Cannot kick player' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        // Notify the kicked player
+        io.to(payload.playerId).emit('room:kicked', {
+          roomId: payload.roomId,
+          reason: 'You were kicked from the room'
+        });
+
+        // Notify room about the kick
+        if (result.wasPlayer && result.shouldEndGame && room.gameState) {
+          io.to(payload.roomId).emit('game:ended', {
+            gameState: room.gameState,
+            reason: 'Player was kicked'
+          });
+        }
+
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers
+        io.emit('room:list-updated');
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error kicking player:', error);
+      callback({ success: false, error: 'Failed to kick player' });
+    }
+  });
+
+  // Host controls: Lock/unlock room
+  socket.on('room:lock', async (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => {
+    try {
+      const success = await roomManager.setRoomLocked(payload.roomId, socket.id, payload.locked);
+      
+      if (!success) {
+        callback({ success: false, error: 'Cannot lock/unlock room' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers
+        io.emit('room:list-updated');
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error locking room:', error);
+      callback({ success: false, error: 'Failed to lock/unlock room' });
+    }
+  });
+
+  // Host controls: Update room settings
+  socket.on('room:update-settings', async (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => {
+    try {
+      const success = await roomManager.updateRoomSettings(payload.roomId, socket.id, payload.settings);
+      
+      if (!success) {
+        callback({ success: false, error: 'Cannot update room settings' });
+        return;
+      }
+
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+        // Notify public room list watchers if visibility changed
+        if (payload.settings.isPrivate !== undefined || payload.settings.allowJoin !== undefined) {
+          io.emit('room:list-updated');
+        }
+      }
+
+      callback({ success: true });
+    } catch (error) {
+      console.error('Error updating room settings:', error);
+      callback({ success: false, error: 'Failed to update room settings' });
     }
   });
 

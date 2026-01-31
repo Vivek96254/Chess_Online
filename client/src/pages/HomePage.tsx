@@ -21,6 +21,10 @@ export default function HomePage() {
   const [showSpectateModal, setShowSpectateModal] = useState(false);
   const [showJoinModeModal, setShowJoinModeModal] = useState(false);
   const [timeControl, setTimeControl] = useState<'none' | 'rapid' | 'blitz'>('none');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [allowJoin, setAllowJoin] = useState(true);
+  const [allowSpectators, setAllowSpectators] = useState(true);
+  const [roomName, setRoomName] = useState('');
 
   useEffect(() => {
     // Check for room in URL params
@@ -40,8 +44,11 @@ export default function HomePage() {
       timeControl: timeControl === 'none' ? null : 
         timeControl === 'rapid' ? { initial: 600, increment: 5 } :
         { initial: 180, increment: 2 },
-      allowSpectators: true,
-      isPrivate: false
+      allowSpectators,
+      allowJoin,
+      isPrivate,
+      roomName: roomName.trim() || undefined,
+      isLocked: false
     };
     
     const success = await createRoom(settings);
@@ -216,6 +223,25 @@ export default function HomePage() {
                   Create Room
                 </>
               )}
+            </button>
+
+            {/* Divider */}
+            <div className="flex items-center gap-4 my-6">
+              <div className="flex-1 h-px bg-midnight-600"></div>
+              <span className="text-midnight-400 text-sm">or</span>
+              <div className="flex-1 h-px bg-midnight-600"></div>
+            </div>
+
+            {/* Browse Rooms Button */}
+            <button
+              onClick={() => navigate('/browse')}
+              disabled={connectionStatus !== 'connected'}
+              className="btn btn-secondary w-full mb-3 flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Browse Public Rooms
             </button>
 
             {/* Divider */}

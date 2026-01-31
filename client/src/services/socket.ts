@@ -33,6 +33,8 @@ interface SocketCallbacks {
   onChatMessage?: (data: ChatMessage) => void;
   onDrawOffered?: (data: { fromPlayerId: string }) => void;
   onDrawDeclined?: () => void;
+  onRoomKicked?: (data: { roomId: string; reason: string }) => void;
+  onRoomListUpdated?: () => void;
 }
 
 class SocketService {
@@ -192,6 +194,15 @@ class SocketService {
     this.socket.on('draw:declined', () => {
       this.callbacks.onDrawDeclined?.();
     });
+
+    // Room management events
+    this.socket.on('room:kicked', (data) => {
+      this.callbacks.onRoomKicked?.(data);
+    });
+
+    this.socket.on('room:list-updated', () => {
+      this.callbacks.onRoomListUpdated?.();
+    });
   }
 
   /**
@@ -349,6 +360,54 @@ class SocketService {
       }
 
       this.socket.emit('chat:send', { roomId, message }, (response: BaseResponse) => {
+        resolve(response);
+      });
+    });
+  }
+
+  /**
+   * Kick a player from room (host only)
+   */
+  kickPlayer(roomId: string, playerId: string): Promise<BaseResponse> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+
+      this.socket.emit('room:kick', { roomId, playerId }, (response: BaseResponse) => {
+        resolve(response);
+      });
+    });
+  }
+
+  /**
+   * Lock/unlock room (host only)
+   */
+  lockRoom(roomId: string, locked: boolean): Promise<BaseResponse> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+
+      this.socket.emit('room:lock', { roomId, locked }, (response: BaseResponse) => {
+        resolve(response);
+      });
+    });
+  }
+
+  /**
+   * Update room settings (host only)
+   */
+  updateRoomSettings(roomId: string, settings: Partial<RoomSettings>): Promise<BaseResponse> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+
+      this.socket.emit('room:update-settings', { roomId, settings }, (response: BaseResponse) => {
         resolve(response);
       });
     });

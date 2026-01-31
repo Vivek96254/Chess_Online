@@ -20,7 +20,23 @@ export interface TimeControl {
 export interface RoomSettings {
   timeControl: TimeControl | null;
   allowSpectators: boolean;
+  allowJoin: boolean;
   isPrivate: boolean;
+  roomName?: string;
+  isLocked: boolean;
+}
+
+// Room listing for browse page
+export interface RoomListing {
+  roomId: string;
+  roomName: string | null;
+  hostName: string;
+  state: RoomState;
+  playerCount: number;
+  spectatorCount: number;
+  timeControl: TimeControl | null;
+  createdAt: number;
+  lastActivity: number;
 }
 
 // Move record

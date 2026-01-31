@@ -4,6 +4,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useGameStore } from './store/gameStore';
 import HomePage from './pages/HomePage';
 import GamePage from './pages/GamePage';
+import BrowseRoomsPage from './pages/BrowseRoomsPage';
 import Notification from './components/Notification';
 
 function App() {
@@ -38,6 +39,7 @@ function App() {
       <AnimatePresence mode="wait">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/browse" element={<BrowseRoomsPage />} />
           <Route path="/room/:roomId" element={<GamePage />} />
           <Route path="/game/:roomId" element={<GamePage />} />
         </Routes>

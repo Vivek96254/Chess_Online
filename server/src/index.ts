@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import { RoomManager } from './services/RoomManager.js';
 import { RedisService } from './services/RedisService.js';
 import { registerSocketHandlers } from './sockets/handlers.js';
-import type { ServerToClientEvents, ClientToServerEvents } from './types/index.js';
+import type { ServerToClientEvents, ClientToServerEvents, RoomState } from './types/index.js';
 
 // Load environment variables
 dotenv.config();
@@ -107,6 +107,24 @@ app.get('/api/stats', (_req, res) => {
 app.get('/api/rooms', (_req, res) => {
   const rooms = roomManager.getPublicWaitingRooms();
   res.json({ rooms });
+});
+
+// Get public room listings for browse page
+app.get('/api/rooms/listings', (req, res) => {
+  const filters: {
+    state?: 'waiting_for_player' | 'in_progress' | 'finished';
+    hasTimeControl?: boolean;
+  } = {};
+
+  if (req.query.state) {
+    filters.state = req.query.state as RoomState;
+  }
+  if (req.query.hasTimeControl !== undefined) {
+    filters.hasTimeControl = req.query.hasTimeControl === 'true';
+  }
+
+  const listings = roomManager.getPublicRoomListings(filters);
+  res.json({ listings });
 });
 
 // Get room info

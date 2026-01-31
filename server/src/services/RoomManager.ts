@@ -7,7 +7,9 @@ import type {
   RoomSettings,
   GameState,
   MoveRecord,
-  PlayerColor
+  PlayerColor,
+  RoomListing,
+  RoomState
 } from '../types/index.js';
 
 /**
@@ -80,7 +82,9 @@ export class RoomManager {
     const defaultSettings: RoomSettings = {
       timeControl: null,
       allowSpectators: true,
+      allowJoin: true,
       isPrivate: false,
+      isLocked: false,
       ...settings
     };
 
@@ -123,6 +127,8 @@ export class RoomManager {
     if (room.state !== 'waiting_for_player') return null;
     if (room.opponentId !== null) return null;
     if (room.hostId === playerId) return null;
+    if (!room.settings.allowJoin) return null; // Check if joining is allowed
+    if (room.settings.isLocked) return null; // Check if room is locked
 
     room.opponentId = playerId;
     room.opponentName = playerName;
@@ -434,11 +440,122 @@ export class RoomManager {
   getPublicWaitingRooms(): SerializableRoom[] {
     const rooms: SerializableRoom[] = [];
     for (const room of this.rooms.values()) {
-      if (room.state === 'waiting_for_player' && !room.settings.isPrivate) {
+      if (room.state === 'waiting_for_player' && !room.settings.isPrivate && room.settings.allowJoin) {
         rooms.push(this.serializeRoom(room));
       }
     }
     return rooms;
+  }
+
+  /**
+   * Get public room listings for browse page
+   */
+  getPublicRoomListings(filters?: {
+    state?: RoomState;
+    hasTimeControl?: boolean;
+  }): RoomListing[] {
+    const listings: RoomListing[] = [];
+    for (const room of this.rooms.values()) {
+      // Only show public rooms that allow joining
+      if (room.settings.isPrivate || !room.settings.allowJoin) continue;
+      
+      // Apply filters
+      if (filters?.state && room.state !== filters.state) continue;
+      if (filters?.hasTimeControl !== undefined) {
+        const hasTimeControl = room.settings.timeControl !== null;
+        if (hasTimeControl !== filters.hasTimeControl) continue;
+      }
+
+      listings.push({
+        roomId: room.roomId,
+        roomName: room.settings.roomName || null,
+        hostName: room.hostName,
+        state: room.state,
+        playerCount: room.opponentId ? 2 : 1,
+        spectatorCount: room.spectators.size,
+        timeControl: room.settings.timeControl,
+        createdAt: room.createdAt,
+        lastActivity: room.lastActivity
+      });
+    }
+    // Sort by last activity (most recent first)
+    return listings.sort((a, b) => b.lastActivity - a.lastActivity);
+  }
+
+  /**
+   * Kick a player from a room (host only)
+   */
+  async kickPlayer(roomId: string, hostId: string, targetPlayerId: string): Promise<{
+    success: boolean;
+    wasPlayer: boolean;
+    shouldEndGame: boolean;
+  }> {
+    const room = this.rooms.get(roomId);
+    if (!room) return { success: false, wasPlayer: false, shouldEndGame: false };
+    
+    // Only host can kick
+    if (room.hostId !== hostId) return { success: false, wasPlayer: false, shouldEndGame: false };
+    
+    // Can't kick yourself
+    if (targetPlayerId === hostId) return { success: false, wasPlayer: false, shouldEndGame: false };
+
+    // Check if target is opponent
+    if (room.opponentId === targetPlayerId) {
+      // Remove opponent
+      const result = await this.leaveRoom(targetPlayerId);
+      return { success: result.wasPlayer, wasPlayer: true, shouldEndGame: result.shouldEndGame };
+    }
+
+    // Check if target is spectator
+    if (room.spectators.has(targetPlayerId)) {
+      room.spectators.delete(targetPlayerId);
+      if (this.redis) {
+        await this.redis.setRoom(this.serializeRoom(room));
+      }
+      return { success: true, wasPlayer: false, shouldEndGame: false };
+    }
+
+    return { success: false, wasPlayer: false, shouldEndGame: false };
+  }
+
+  /**
+   * Lock/unlock a room (host only)
+   */
+  async setRoomLocked(roomId: string, hostId: string, locked: boolean): Promise<boolean> {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    if (room.hostId !== hostId) return false;
+
+    room.settings.isLocked = locked;
+    room.lastActivity = Date.now();
+
+    if (this.redis) {
+      await this.redis.setRoom(this.serializeRoom(room));
+    }
+
+    return true;
+  }
+
+  /**
+   * Update room settings (host only)
+   */
+  async updateRoomSettings(
+    roomId: string,
+    hostId: string,
+    settings: Partial<RoomSettings>
+  ): Promise<boolean> {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    if (room.hostId !== hostId) return false;
+
+    room.settings = { ...room.settings, ...settings };
+    room.lastActivity = Date.now();
+
+    if (this.redis) {
+      await this.redis.setRoom(this.serializeRoom(room));
+    }
+
+    return true;
   }
 
   /**

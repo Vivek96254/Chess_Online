@@ -44,7 +44,10 @@ interface GameStore {
   setPlayerName: (name: string) => void;
   connect: () => Promise<void>;
   disconnect: () => void;
-  createRoom: (settings?: { timeControl?: { initial: number; increment: number } | null; allowSpectators?: boolean; isPrivate?: boolean }) => Promise<boolean>;
+  createRoom: (settings?: Partial<RoomSettings>) => Promise<boolean>;
+  kickPlayer: (playerId: string) => Promise<void>;
+  lockRoom: (locked: boolean) => Promise<void>;
+  updateRoomSettings: (settings: Partial<RoomSettings>) => Promise<void>;
   joinRoom: (roomId: string) => Promise<boolean>;
   spectateRoom: (roomId: string) => Promise<boolean>;
   leaveRoom: () => Promise<void>;
@@ -211,6 +214,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
             drawOfferFrom: null,
             notification: { type: 'info', message: 'Draw offer declined' }
           });
+        },
+        onRoomKicked: (data) => {
+          set({ 
+            room: null,
+            gameState: null,
+            chess: null,
+            notification: { type: 'error', message: data.reason }
+          });
+        },
+        onRoomListUpdated: () => {
+          // Room list updated - could trigger refresh if on browse page
         }
       });
 
@@ -472,5 +486,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
       board.push(rowPieces);
     }
     return board;
+  },
+
+  kickPlayer: async (targetPlayerId: string) => {
+    const { room } = get();
+    if (!room) return;
+    
+    const response = await socketService.kickPlayer(room.roomId, targetPlayerId);
+    if (!response.success) {
+      set({ notification: { type: 'error', message: response.error || 'Failed to kick player' } });
+    }
+  },
+
+  lockRoom: async (locked: boolean) => {
+    const { room } = get();
+    if (!room) return;
+    
+    const response = await socketService.lockRoom(room.roomId, locked);
+    if (!response.success) {
+      set({ notification: { type: 'error', message: response.error || 'Failed to lock/unlock room' } });
+    }
+  },
+
+  updateRoomSettings: async (settings: Partial<RoomSettings>) => {
+    const { room } = get();
+    if (!room) return;
+    
+    const response = await socketService.updateRoomSettings(room.roomId, settings);
+    if (!response.success) {
+      set({ notification: { type: 'error', message: response.error || 'Failed to update room settings' } });
+    }
   }
 }));

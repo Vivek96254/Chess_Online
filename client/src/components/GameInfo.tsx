@@ -12,12 +12,14 @@ interface GameInfoProps {
 }
 
 export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyCode }: GameInfoProps) {
-  const { resign, offerDraw, gameState, latency } = useGameStore();
+  const { resign, offerDraw, gameState, latency, playerId, kickPlayer, lockRoom, updateRoomSettings } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [showKickMenu, setShowKickMenu] = useState(false);
 
   const isPlaying = room.state === 'in_progress' && !isSpectator;
   const isFinished = room.state === 'finished';
+  const isHost = playerId === room.hostId && !isSpectator;
 
   const handleCopyCode = () => {
     onCopyCode();
@@ -50,7 +52,14 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
           </div>
         </div>
 
-        {/* Room code */}
+        {/* Room name and code */}
+        {room.settings.roomName && (
+          <div className="mb-3">
+            <p className="text-xs text-midnight-400 mb-1">Room Name</p>
+            <p className="text-lg font-bold text-white">{room.settings.roomName}</p>
+          </div>
+        )}
+        
         <div className="bg-midnight-900 rounded-lg p-3 mb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -76,7 +85,7 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
         </div>
 
         {/* Game status */}
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-sm flex-wrap">
           <span className={clsx(
             'px-2 py-1 rounded-full text-xs font-medium',
             room.state === 'waiting_for_player' && 'bg-yellow-500/20 text-yellow-400',
@@ -90,6 +99,19 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
           {isSpectator && (
             <span className="px-2 py-1 rounded-full text-xs font-medium bg-accent/20 text-accent">
               Spectating
+            </span>
+          )}
+          {room.settings.isPrivate && (
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400">
+              Private
+            </span>
+          )}
+          {room.settings.isLocked && (
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Locked
             </span>
           )}
         </div>
@@ -199,6 +221,66 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
             {gameState.status === 'timeout' && `${gameState.winner === 'white' ? 'White' : 'Black'} wins on time!`}
             {gameState.status === 'abandoned' && `${gameState.winner === 'white' ? 'White' : 'Black'} wins by abandonment!`}
           </p>
+        </div>
+      )}
+
+      {/* Host Controls */}
+      {isHost && !isFinished && (
+        <div className="card p-4 mb-4 border-accent/30">
+          <h3 className="text-sm font-medium text-midnight-400 mb-3">Host Controls</h3>
+          
+          <div className="space-y-2">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={room.settings.isLocked}
+                onChange={(e) => lockRoom(e.target.checked)}
+                className="w-5 h-5 rounded bg-midnight-700 border-midnight-600 text-accent focus:ring-accent"
+              />
+              <span className="text-sm text-midnight-300">Lock Room</span>
+            </label>
+
+            {room.opponentId && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowKickMenu(!showKickMenu)}
+                  className="btn btn-secondary w-full text-sm"
+                >
+                  Manage Players
+                </button>
+                {showKickMenu && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 card p-2 z-10">
+                    <button
+                      onClick={() => {
+                        kickPlayer(room.opponentId!);
+                        setShowKickMenu(false);
+                      }}
+                      className="btn btn-danger w-full text-sm"
+                    >
+                      Kick {room.opponentName || 'Opponent'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {room.spectators.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs text-midnight-400 mb-2">Spectators:</p>
+                {room.spectators.map((spec) => (
+                  <div key={spec.odId} className="flex items-center justify-between p-2 bg-midnight-900 rounded mb-1">
+                    <span className="text-sm text-midnight-300">{spec.name}</span>
+                    <button
+                      onClick={() => kickPlayer(spec.odId)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      Kick
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

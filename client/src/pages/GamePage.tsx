@@ -288,10 +288,12 @@ export default function GamePage() {
               <span className="text-4xl">⏳</span>
             </div>
             <h2 className="font-display text-2xl font-bold text-white mb-2">
-              Waiting for Opponent
+              {room.settings.roomName || 'Waiting for Opponent'}
             </h2>
             <p className="text-midnight-300 mb-6">
-              Share the room code or link with a friend
+              {room.settings.isPrivate 
+                ? 'Share the room code or link with a friend' 
+                : 'Your room is public and visible in Browse Rooms'}
             </p>
             
             <div className="bg-midnight-900 rounded-lg p-4 mb-6">
