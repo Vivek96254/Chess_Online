@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/gameStore';
@@ -17,30 +17,21 @@ export default function BrowseRoomsPage() {
     hasTimeControl?: boolean;
   }>({});
   const [previewRoom, setPreviewRoom] = useState<RoomListing | null>(null);
+  const isFetchingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchRooms();
+  const fetchRooms = useCallback(async () => {
+    // Prevent multiple simultaneous requests
+    if (isFetchingRef.current) return;
     
-    // Set up polling for real-time updates
-    const interval = setInterval(fetchRooms, 3000);
+    isFetchingRef.current = true;
     
-    return () => clearInterval(interval);
-  }, [filters]);
-
-  // Listen for socket room list updates
-  useEffect(() => {
-    socketService.setCallbacks({
-      onRoomListUpdated: () => {
-        fetchRooms();
-      }
-    });
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
     
-    return () => {
-      socketService.setCallbacks({ onRoomListUpdated: undefined });
-    };
-  }, []);
-
-  const fetchRooms = async () => {
     try {
       const params = new URLSearchParams();
       if (filters.state) params.append('state', filters.state);
@@ -48,15 +39,50 @@ export default function BrowseRoomsPage() {
         params.append('hasTimeControl', filters.hasTimeControl.toString());
       }
 
-      const response = await fetch(`${SERVER_URL}/api/rooms/listings?${params}`);
+      const response = await fetch(`${SERVER_URL}/api/rooms/listings?${params}`, {
+        signal: abortControllerRef.current.signal
+      });
       const data = await response.json();
       setRooms(data.listings || []);
       setIsLoading(false);
     } catch (error) {
-      console.error('Error fetching rooms:', error);
-      setIsLoading(false);
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Error fetching rooms:', error);
+        setIsLoading(false);
+      }
+    } finally {
+      isFetchingRef.current = false;
     }
-  };
+  }, [filters]);
+
+  useEffect(() => {
+    fetchRooms();
+    
+    // Set up polling for real-time updates
+    const interval = setInterval(fetchRooms, 5000);
+    
+    return () => {
+      clearInterval(interval);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchRooms]);
+
+  // Listen for socket room list updates
+  useEffect(() => {
+    const handleRoomListUpdated = () => {
+      fetchRooms();
+    };
+    
+    socketService.setCallbacks({
+      onRoomListUpdated: handleRoomListUpdated
+    });
+    
+    return () => {
+      socketService.setCallbacks({ onRoomListUpdated: undefined });
+    };
+  }, [fetchRooms]);
 
   const formatTimeControl = (tc: { initial: number; increment: number } | null): string => {
     if (!tc) return 'No Timer';
