@@ -23,6 +23,10 @@ import type {
 type ChessSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type ChessServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
+// Shared draw offers map across all socket connections
+// roomId -> offerer socket id
+const drawOffers = new Map<string, string>();
+
 /**
  * Register all socket event handlers
  */
@@ -177,6 +181,9 @@ export function registerSocketHandlers(
       if (room) {
         socket.leave(room.roomId);
 
+        // Clear any pending draw offers for this room
+        drawOffers.delete(room.roomId);
+
         if (shouldEndGame && room.gameState) {
           io.to(room.roomId).emit('game:ended', {
             gameState: room.gameState,
@@ -231,6 +238,9 @@ export function registerSocketHandlers(
 
       // Check if game ended
       if (result.gameState?.status !== 'active') {
+        // Clear any pending draw offers
+        drawOffers.delete(validated.roomId);
+        
         const room = roomManager.getRoom(validated.roomId);
         io.to(validated.roomId).emit('game:ended', {
           gameState: result.gameState!,
@@ -263,6 +273,9 @@ export function registerSocketHandlers(
         return;
       }
 
+      // Clear any pending draw offers
+      drawOffers.delete(payload.roomId);
+
       io.to(payload.roomId).emit('game:ended', {
         gameState,
         reason: 'Player resigned'
@@ -282,8 +295,6 @@ export function registerSocketHandlers(
   });
 
   // Draw offer/accept/decline
-  const drawOffers = new Map<string, string>(); // roomId -> offerer socket id
-
   socket.on('game:offer-draw', async (payload: { roomId: string }, callback: (response: BaseResponse) => void) => {
     try {
       const room = roomManager.getRoom(payload.roomId);
@@ -300,8 +311,8 @@ export function registerSocketHandlers(
 
       drawOffers.set(payload.roomId, socket.id);
       
-      // Notify the other player
-      socket.to(payload.roomId).emit('draw:offered', { fromPlayerId: socket.id });
+      // Notify everyone in the room (players and spectators)
+      io.to(payload.roomId).emit('draw:offered', { fromPlayerId: socket.id });
       
       callback({ success: true });
     } catch (error) {
@@ -313,8 +324,27 @@ export function registerSocketHandlers(
   socket.on('game:accept-draw', async (payload: { roomId: string }, callback: (response: BaseResponse) => void) => {
     try {
       const offerer = drawOffers.get(payload.roomId);
-      if (!offerer || offerer === socket.id) {
+      if (!offerer) {
         callback({ success: false, error: 'No draw offer to accept' });
+        return;
+      }
+
+      // Only the opponent (not the offerer) can accept
+      if (offerer === socket.id) {
+        callback({ success: false, error: 'Cannot accept your own draw offer' });
+        return;
+      }
+
+      // Verify the acceptor is a player in the room
+      const room = roomManager.getRoom(payload.roomId);
+      if (!room || room.state !== 'in_progress') {
+        callback({ success: false, error: 'Game is not in progress' });
+        return;
+      }
+
+      const isPlayer = room.hostId === socket.id || room.opponentId === socket.id;
+      if (!isPlayer) {
+        callback({ success: false, error: 'Only players can accept draw offers' });
         return;
       }
 
@@ -331,9 +361,10 @@ export function registerSocketHandlers(
         reason: 'Draw agreed'
       });
 
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+      // Get updated room state after draw
+      const updatedRoom = roomManager.getRoom(payload.roomId);
+      if (updatedRoom) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(updatedRoom));
       }
 
       callback({ success: true });
@@ -418,6 +449,9 @@ export function registerSocketHandlers(
             if (stillDisconnected) {
               const { shouldEndGame, room: updatedRoom } = await roomManager.leaveRoom(socket.id);
               if (shouldEndGame && updatedRoom?.gameState) {
+                // Clear any pending draw offers
+                drawOffers.delete(roomId);
+                
                 io.to(roomId).emit('game:ended', {
                   gameState: updatedRoom.gameState,
                   reason: 'Player disconnected'

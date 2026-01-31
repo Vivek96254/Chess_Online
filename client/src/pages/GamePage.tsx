@@ -253,7 +253,7 @@ export default function GamePage() {
 
       {/* Draw Offer Modal */}
       {drawOffered && drawOfferFrom !== playerId && (
-        <DrawOfferModal />
+        <DrawOfferModal isSpectator={isSpectator} />
       )}
     </div>
   );
