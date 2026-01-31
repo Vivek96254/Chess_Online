@@ -1,0 +1,61 @@
+# Render Blueprint Configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Backend - Node.js Web Service
+  - type: web
+    name: chess-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: cd server && npm install && npm run build
+    startCommand: cd server && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: CLIENT_URL
+        fromService:
+          type: web
+          name: chess-frontend
+          property: url
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: chess-redis
+          property: connectionString
+
+  # Frontend - Static Site
+  - type: web
+    name: chess-frontend
+    env: static
+    region: oregon
+    buildCommand: cd client && npm install && npm run build
+    staticPublishPath: client/dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=31536000
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_WS_URL
+        fromService:
+          type: web
+          name: chess-backend
+          property: url
+
+  # Redis - Managed Redis Instance
+  - type: redis
+    name: chess-redis
+    region: oregon
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []

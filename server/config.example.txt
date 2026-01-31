@@ -1,0 +1,39 @@
+╔═══════════════════════════════════════════════════════════════╗
+║           CHESS ONLINE - SERVER CONFIGURATION                 ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Create a .env file in the server directory with these variables:
+
+────────────────────────────────────────────────────────────────
+# Server Configuration
+────────────────────────────────────────────────────────────────
+
+PORT=3001
+# The port the server will listen on
+
+NODE_ENV=development
+# Environment: development | production
+
+────────────────────────────────────────────────────────────────
+# Client Configuration
+────────────────────────────────────────────────────────────────
+
+CLIENT_URL=http://localhost:5173
+# Frontend URL for CORS configuration
+# In production, use your deployed frontend URL
+# For multiple origins: CLIENT_URL=https://app.example.com,https://www.example.com
+
+────────────────────────────────────────────────────────────────
+# Redis Configuration (Optional)
+────────────────────────────────────────────────────────────────
+
+# REDIS_URL=redis://localhost:6379
+# Redis connection string for state management
+# If not provided, server uses in-memory storage (not recommended for production)
+
+────────────────────────────────────────────────────────────────
+# Database Configuration (Optional - for match history)
+────────────────────────────────────────────────────────────────
+
+# DATABASE_URL=postgresql://user:password@localhost:5432/chess
+# PostgreSQL connection string for persistent match history
