@@ -27,7 +27,8 @@ export default function GamePage() {
     setPromotionPending,
     drawOffered,
     drawOfferFrom,
-    playerId
+    playerId,
+    connectionStatus
   } = useGameStore();
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -40,6 +41,17 @@ export default function GamePage() {
       if (!roomId) {
         navigate('/');
         return;
+      }
+
+      // Wait for connection to be established
+      if (connectionStatus !== 'connected') {
+        // Wait a bit for connection
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (connectionStatus !== 'connected') {
+          setIsLoading(false);
+          setShowJoinModeModal(true);
+          return;
+        }
       }
 
       // If already in this room, no need to rejoin
@@ -87,7 +99,7 @@ export default function GamePage() {
     };
 
     initRoom();
-  }, [roomId, room?.roomId, playerName, joinRoom, spectateRoom, navigate]);
+  }, [roomId, room?.roomId, playerName, joinRoom, spectateRoom, navigate, connectionStatus]);
 
   const handleLeave = async () => {
     await leaveRoom();
@@ -113,9 +125,15 @@ export default function GamePage() {
   };
 
   const handleJoinAsPlayer = async () => {
-    if (!playerName) {
-      // If no name, redirect to home to set name first
-      navigate(`/?room=${roomId}`);
+    const currentPlayerName = useGameStore.getState().playerName;
+    if (!currentPlayerName?.trim()) {
+      // If no name, show error
+      useGameStore.setState({ 
+        notification: { 
+          type: 'error', 
+          message: 'Please enter your name to join as a player' 
+        } 
+      });
       return;
     }
     
@@ -126,6 +144,14 @@ export default function GamePage() {
     if (success) {
       setShowJoinModeModal(false);
       setIsLoading(false);
+    } else {
+      // If join failed, show error but keep modal open
+      useGameStore.setState({ 
+        notification: { 
+          type: 'error', 
+          message: 'Failed to join room. The room may not exist or may be full.' 
+        } 
+      });
     }
   };
 
@@ -137,6 +163,14 @@ export default function GamePage() {
     if (success) {
       setShowJoinModeModal(false);
       setIsLoading(false);
+    } else {
+      // If spectate failed, show error but keep modal open
+      useGameStore.setState({ 
+        notification: { 
+          type: 'error', 
+          message: 'Failed to spectate room. The room may not exist.' 
+        } 
+      });
     }
   };
 
@@ -147,6 +181,81 @@ export default function GamePage() {
           <div className="spinner mx-auto mb-4"></div>
           <p className="text-midnight-300">Loading game...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Show join mode modal if needed (before checking if room exists)
+  if (showJoinModeModal) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="card p-6 w-full max-w-sm"
+        >
+          <h3 className="font-display text-xl font-bold text-white mb-2">
+            Join Game
+          </h3>
+          <p className="text-midnight-300 mb-4">
+            Room Code: <span className="font-mono font-bold text-accent">{roomId}</span>
+          </p>
+          <p className="text-midnight-300 mb-6">
+            How would you like to join this game?
+          </p>
+
+          {!playerName && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-midnight-300 mb-2">
+                Your Name (required for playing)
+              </label>
+              <input
+                type="text"
+                value={playerName || ''}
+                onChange={(e) => useGameStore.getState().setPlayerName(e.target.value)}
+                placeholder="Enter your name"
+                className="input"
+                maxLength={20}
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <button
+              onClick={handleJoinAsPlayer}
+              disabled={isJoining || !playerName?.trim()}
+              className="btn btn-primary w-full flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              Join as Player
+            </button>
+
+            <button
+              onClick={handleJoinAsSpectator}
+              disabled={isJoining}
+              className="btn btn-secondary w-full flex items-center justify-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              Join as Spectator
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setShowJoinModeModal(false);
+              navigate('/');
+            }}
+            className="btn btn-secondary w-full mt-3"
+          >
+            Cancel
+          </button>
+        </motion.div>
       </div>
     );
   }
@@ -305,58 +414,6 @@ export default function GamePage() {
         <DrawOfferModal isSpectator={isSpectator} />
       )}
 
-      {/* Join Mode Selection Modal */}
-      {showJoinModeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="card p-6 w-full max-w-sm"
-          >
-            <h3 className="font-display text-xl font-bold text-white mb-2">
-              Join Game
-            </h3>
-            <p className="text-midnight-300 mb-6">
-              How would you like to join this game?
-            </p>
-
-            <div className="space-y-3">
-              <button
-                onClick={handleJoinAsPlayer}
-                disabled={isJoining}
-                className="btn btn-primary w-full flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                Join as Player
-              </button>
-
-              <button
-                onClick={handleJoinAsSpectator}
-                disabled={isJoining}
-                className="btn btn-secondary w-full flex items-center justify-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                Join as Spectator
-              </button>
-            </div>
-
-            <button
-              onClick={() => {
-                setShowJoinModeModal(false);
-                navigate('/');
-              }}
-              className="btn btn-secondary w-full mt-3"
-            >
-              Cancel
-            </button>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }
