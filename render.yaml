@@ -17,10 +17,7 @@ services:
       - key: PORT
         value: 3001
       - key: CLIENT_URL
-        fromService:
-          type: web
-          name: chess-frontend
-          property: url
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
@@ -31,7 +28,6 @@ services:
   - type: web
     name: chess-frontend
     env: static
-    region: oregon
     buildCommand: cd client && npm install && npm run build
     staticPublishPath: client/dist
     headers:
@@ -47,10 +43,7 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_WS_URL
-        fromService:
-          type: web
-          name: chess-backend
-          property: url
+        sync: false
 
   # Redis - Managed Redis Instance
   - type: redis
