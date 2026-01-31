@@ -9,20 +9,21 @@ interface GameInfoProps {
   isSpectator: boolean;
   onLeave: () => void;
   onCopyLink: () => void;
+  onCopyCode: () => void;
 }
 
-export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyLink }: GameInfoProps) {
+export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyLink, onCopyCode }: GameInfoProps) {
   const { resign, offerDraw, gameState, latency } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const isPlaying = room.state === 'in_progress' && !isSpectator;
   const isFinished = room.state === 'finished';
 
-  const handleCopyLink = () => {
-    onCopyLink();
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+  const handleCopyCode = () => {
+    onCopyCode();
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
   };
 
   const handleResign = () => {
@@ -58,11 +59,11 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
               <p className="font-mono text-lg font-bold text-accent">{room.roomId}</p>
             </div>
             <button
-              onClick={handleCopyLink}
+              onClick={handleCopyCode}
               className="p-2 rounded-lg bg-midnight-700 hover:bg-midnight-600 text-white transition-colors"
-              title="Copy invite link"
+              title="Copy room code"
             >
-              {linkCopied ? (
+              {codeCopied ? (
                 <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>

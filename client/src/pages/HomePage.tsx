@@ -19,6 +19,7 @@ export default function HomePage() {
   const [isJoining, setIsJoining] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showSpectateModal, setShowSpectateModal] = useState(false);
+  const [showJoinModeModal, setShowJoinModeModal] = useState(false);
   const [timeControl, setTimeControl] = useState<'none' | 'rapid' | 'blitz'>('none');
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export default function HomePage() {
     const room = params.get('room');
     if (room) {
       setRoomCode(room);
-      setShowJoinModal(true);
+      setShowJoinModeModal(true);
     }
   }, []);
 
@@ -74,6 +75,33 @@ export default function HomePage() {
     setIsJoining(false);
     
     if (success) {
+      navigate(`/game/${roomCode.toUpperCase()}`);
+    }
+  };
+
+  const handleJoinAsPlayerFromModal = async () => {
+    if (!playerName.trim()) {
+      // Focus on name input
+      return;
+    }
+    
+    setIsJoining(true);
+    const success = await joinRoom(roomCode.toUpperCase());
+    setIsJoining(false);
+    
+    if (success) {
+      setShowJoinModeModal(false);
+      navigate(`/game/${roomCode.toUpperCase()}`);
+    }
+  };
+
+  const handleJoinAsSpectatorFromModal = async () => {
+    setIsJoining(true);
+    const success = await spectateRoom(roomCode.toUpperCase());
+    setIsJoining(false);
+    
+    if (success) {
+      setShowJoinModeModal(false);
       navigate(`/game/${roomCode.toUpperCase()}`);
     }
   };
@@ -353,6 +381,83 @@ export default function HomePage() {
                 {isJoining ? 'Joining...' : 'Watch'}
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Join Mode Selection Modal (from link) */}
+      {showJoinModeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card p-6 w-full max-w-sm"
+          >
+            <h3 className="font-display text-xl font-bold text-white mb-2">
+              Join Game
+            </h3>
+            <p className="text-midnight-300 mb-4">
+              Room Code: <span className="font-mono font-bold text-accent">{roomCode}</span>
+            </p>
+            <p className="text-midnight-300 mb-6">
+              How would you like to join this game?
+            </p>
+
+            {!playerName && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-midnight-300 mb-2">
+                  Your Name (required for playing)
+                </label>
+                <input
+                  type="text"
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="Enter your name"
+                  className="input"
+                  maxLength={20}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <button
+                onClick={handleJoinAsPlayerFromModal}
+                disabled={isJoining || !playerName.trim()}
+                className="btn btn-primary w-full flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Join as Player
+              </button>
+
+              <button
+                onClick={handleJoinAsSpectatorFromModal}
+                disabled={isJoining}
+                className="btn btn-secondary w-full flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Join as Spectator
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowJoinModeModal(false);
+                setRoomCode('');
+                // Clear room param from URL
+                const url = new URL(window.location.href);
+                url.searchParams.delete('room');
+                window.history.replaceState({}, '', url);
+              }}
+              className="btn btn-secondary w-full mt-3"
+            >
+              Cancel
+            </button>
           </motion.div>
         </div>
       )}

@@ -32,6 +32,8 @@ export default function GamePage() {
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showJoinModeModal, setShowJoinModeModal] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
 
   useEffect(() => {
     const initRoom = async () => {
@@ -46,7 +48,20 @@ export default function GamePage() {
         return;
       }
 
-      // Try to join or spectate
+      // Check if user came from outside (direct link) - show join mode selection
+      // Show modal if: not already in room AND (no referrer OR referrer is from different domain)
+      const cameFromLink = !room && (
+        !document.referrer || 
+        !document.referrer.includes(window.location.host)
+      );
+      
+      if (cameFromLink) {
+        setIsLoading(false);
+        setShowJoinModeModal(true);
+        return;
+      }
+
+      // Try to join or spectate (for programmatic navigation)
       setIsLoading(true);
       
       if (playerName) {
@@ -91,6 +106,40 @@ export default function GamePage() {
     navigator.clipboard.writeText(link);
   };
 
+  const copyRoomCode = () => {
+    if (roomId) {
+      navigator.clipboard.writeText(roomId);
+    }
+  };
+
+  const handleJoinAsPlayer = async () => {
+    if (!playerName) {
+      // If no name, redirect to home to set name first
+      navigate(`/?room=${roomId}`);
+      return;
+    }
+    
+    setIsJoining(true);
+    const success = await joinRoom(roomId!);
+    setIsJoining(false);
+    
+    if (success) {
+      setShowJoinModeModal(false);
+      setIsLoading(false);
+    }
+  };
+
+  const handleJoinAsSpectator = async () => {
+    setIsJoining(true);
+    const success = await spectateRoom(roomId!);
+    setIsJoining(false);
+    
+    if (success) {
+      setShowJoinModeModal(false);
+      setIsLoading(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -132,6 +181,7 @@ export default function GamePage() {
           isSpectator={isSpectator}
           onLeave={() => setShowLeaveConfirm(true)}
           onCopyLink={copyRoomLink}
+          onCopyCode={copyRoomCode}
         />
       </motion.aside>
 
@@ -254,6 +304,59 @@ export default function GamePage() {
       {/* Draw Offer Modal */}
       {drawOffered && drawOfferFrom !== playerId && (
         <DrawOfferModal isSpectator={isSpectator} />
+      )}
+
+      {/* Join Mode Selection Modal */}
+      {showJoinModeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card p-6 w-full max-w-sm"
+          >
+            <h3 className="font-display text-xl font-bold text-white mb-2">
+              Join Game
+            </h3>
+            <p className="text-midnight-300 mb-6">
+              How would you like to join this game?
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleJoinAsPlayer}
+                disabled={isJoining}
+                className="btn btn-primary w-full flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Join as Player
+              </button>
+
+              <button
+                onClick={handleJoinAsSpectator}
+                disabled={isJoining}
+                className="btn btn-secondary w-full flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Join as Spectator
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowJoinModeModal(false);
+                navigate('/');
+              }}
+              className="btn btn-secondary w-full mt-3"
+            >
+              Cancel
+            </button>
+          </motion.div>
+        </div>
       )}
     </div>
   );
