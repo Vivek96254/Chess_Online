@@ -6,7 +6,7 @@ interface DrawOfferModalProps {
 }
 
 export default function DrawOfferModal({ isSpectator = false }: DrawOfferModalProps) {
-  const { acceptDraw, declineDraw, room } = useGameStore();
+  const { acceptDraw, declineDraw } = useGameStore();
 
   // For spectators, show a notification-only modal
   if (isSpectator) {
