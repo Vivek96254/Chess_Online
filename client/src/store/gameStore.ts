@@ -7,7 +7,6 @@ import type {
   PlayerColor,
   ConnectionStatus,
   ChatMessage,
-  MoveRecord,
   Piece,
   BoardState
 } from '../types';

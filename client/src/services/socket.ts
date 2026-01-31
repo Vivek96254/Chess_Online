@@ -4,7 +4,6 @@ import type {
   GameState,
   MoveRecord,
   Player,
-  PlayerColor,
   RoomResponse,
   MoveResponse,
   BaseResponse,
