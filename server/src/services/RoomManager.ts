@@ -7,8 +7,7 @@ import type {
   RoomSettings,
   GameState,
   MoveRecord,
-  PlayerColor,
-  GameStatus
+  PlayerColor
 } from '../types/index.js';
 
 /**
@@ -181,7 +180,7 @@ export class RoomManager {
     const roomId = this.playerRooms.get(playerId);
     if (!roomId) {
       // Check if spectator
-      for (const [rId, room] of this.rooms.entries()) {
+      for (const [, room] of this.rooms.entries()) {
         if (room.spectators.has(playerId)) {
           room.spectators.delete(playerId);
           if (this.redis) {

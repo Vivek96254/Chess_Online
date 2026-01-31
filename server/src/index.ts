@@ -85,7 +85,7 @@ async function initializeServices(): Promise<void> {
 }
 
 // Health check endpoint
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
   const redisHealthy = redis ? await redis.ping() : true;
   
   res.json({
@@ -98,13 +98,13 @@ app.get('/health', async (req, res) => {
 });
 
 // Get server stats
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', (_req, res) => {
   const stats = roomManager.getStats();
   res.json(stats);
 });
 
 // Get public waiting rooms
-app.get('/api/rooms', (req, res) => {
+app.get('/api/rooms', (_req, res) => {
   const rooms = roomManager.getPublicWaitingRooms();
   res.json({ rooms });
 });
@@ -135,7 +135,7 @@ io.engine.on('connection', () => {
 });
 
 // Error handling
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Server error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
@@ -173,9 +173,9 @@ async function start(): Promise<void> {
 ║                                                           ║
 ║   ♔ Chess Online Server                                   ║
 ║                                                           ║
-║   🚀 Server running on port ${PORT}                         ║
-║   🌍 Environment: ${NODE_ENV.padEnd(10)}                       ║
-║   🔗 Client URL: ${CLIENT_URL.slice(0, 30).padEnd(30)}   ║
+║   🚀 Server running on port ${PORT}                       ║
+║   🌍 Environment: ${NODE_ENV.padEnd(10)}                  ║
+║   🔗 Client URL: ${CLIENT_URL.slice(0, 30).padEnd(30)}    ║
 ║   📦 Redis: ${redis ? 'Connected' : 'In-Memory'.padEnd(10)}                         ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝

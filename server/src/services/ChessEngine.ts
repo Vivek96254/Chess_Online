@@ -180,7 +180,7 @@ export class ChessEngine {
    */
   getDetailedHistory(): MoveRecord[] {
     const moves = this.chess.history({ verbose: true });
-    return moves.map((m, index) => ({
+    return moves.map((m) => ({
       from: m.from,
       to: m.to,
       san: m.san,

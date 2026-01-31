@@ -19,19 +19,16 @@ export class RedisService {
     const url = redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
     
     this.redis = new Redis(url, {
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
       lazyConnect: true
     });
 
     this.subscriber = new Redis(url, {
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
       lazyConnect: true
     });
 
     this.publisher = new Redis(url, {
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
       lazyConnect: true
     });
