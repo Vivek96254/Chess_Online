@@ -34,7 +34,7 @@ export class DatabaseService {
     });
 
     // Handle pool errors
-    this.pool.on('error', (err) => {
+    this.pool.on('error', (err: Error) => {
       console.error('🔴 Unexpected database pool error:', err);
     });
 
@@ -131,7 +131,7 @@ export class DatabaseService {
 
     // Get list of executed migrations
     const result = await this.query<{ name: string }>('SELECT name FROM migrations');
-    const executedMigrations = new Set(result.rows.map(r => r.name));
+    const executedMigrations = new Set(result.rows.map((r: { name: string }) => r.name));
 
     // Get migration files
     const migrationsDir = path.join(__dirname, '..', 'db', 'migrations');
