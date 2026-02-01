@@ -86,12 +86,16 @@ export interface Player {
   isConnected: boolean;
 }
 
+// Chat types
+export type ChatType = 'public' | 'private';
+
 // Chat message
 export interface ChatMessage {
   senderId: string;
   senderName: string;
   message: string;
   timestamp: number;
+  chatType: ChatType;
 }
 
 // Connection status

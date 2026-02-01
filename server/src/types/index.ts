@@ -134,9 +134,12 @@ export interface OfferDrawPayload {
   roomId: string;
 }
 
+export type ChatType = 'public' | 'private';
+
 export interface ChatMessagePayload {
   roomId: string;
   message: string;
+  chatType: ChatType; // 'public' for everyone, 'private' for players only
 }
 
 // Server -> Client events
@@ -162,7 +165,7 @@ export interface ServerToClientEvents {
   'spectator:joined': (data: { spectatorId: string; name: string; count: number }) => void;
   'spectator:left': (data: { spectatorId: string; count: number }) => void;
   
-  'chat:message': (data: { senderId: string; senderName: string; message: string; timestamp: number }) => void;
+  'chat:message': (data: { senderId: string; senderName: string; message: string; timestamp: number; chatType: ChatType }) => void;
   
   'draw:offered': (data: { fromPlayerId: string }) => void;
   'draw:declined': () => void;
@@ -176,7 +179,7 @@ export interface ClientToServerEvents {
   'room:join': (payload: JoinRoomPayload, callback: (response: RoomResponse) => void) => void;
   'room:spectate': (payload: SpectateRoomPayload, callback: (response: RoomResponse) => void) => void;
   'room:leave': (callback: (response: BaseResponse) => void) => void;
-  'room:kick': (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => void;
+  'room:kick': (payload: { roomId: string; odId: string }, callback: (response: BaseResponse) => void) => void;
   'room:lock': (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => void;
   'room:update-settings': (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => void;
   
@@ -245,7 +248,8 @@ export const MakeMoveSchema = z.object({
 
 export const ChatMessageSchema = z.object({
   roomId: z.string().min(1).max(50),
-  message: z.string().min(1).max(500).trim()
+  message: z.string().min(1).max(500).trim(),
+  chatType: z.enum(['public', 'private']).default('public')
 });
 
 // Session management types

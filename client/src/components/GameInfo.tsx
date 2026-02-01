@@ -12,10 +12,9 @@ interface GameInfoProps {
 }
 
 export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCopyCode }: GameInfoProps) {
-  const { resign, offerDraw, gameState, latency, playerId, kickPlayer, lockRoom } = useGameStore();
+  const { resign, offerDraw, gameState, latency, playerId, kickSpectator, lockRoom } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
-  const [showKickMenu, setShowKickMenu] = useState(false);
 
   const isPlaying = room.state === 'in_progress' && !isSpectator;
   const isFinished = room.state === 'finished';
@@ -230,54 +229,58 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
           <h3 className="text-sm font-medium text-midnight-400 mb-3">Host Controls</h3>
           
           <div className="space-y-2">
-            <label className="flex items-center gap-3 cursor-pointer">
+            {/* Lock Room Toggle */}
+            <label className="flex items-center gap-3 cursor-pointer p-2 rounded bg-midnight-900 hover:bg-midnight-800 transition-colors">
               <input
                 type="checkbox"
                 checked={room.settings.isLocked}
                 onChange={(e) => lockRoom(e.target.checked)}
                 className="w-5 h-5 rounded bg-midnight-700 border-midnight-600 text-accent focus:ring-accent"
               />
-              <span className="text-sm text-midnight-300">Lock Room</span>
-            </label>
-
-            {room.opponentId && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowKickMenu(!showKickMenu)}
-                  className="btn btn-secondary w-full text-sm"
-                >
-                  Manage Players
-                </button>
-                {showKickMenu && (
-                  <div className="absolute bottom-full left-0 right-0 mb-2 card p-2 z-10">
-                    <button
-                      onClick={() => {
-                        kickPlayer(room.opponentId!);
-                        setShowKickMenu(false);
-                      }}
-                      className="btn btn-danger w-full text-sm"
-                    >
-                      Kick {room.opponentName || 'Opponent'}
-                    </button>
-                  </div>
+              <div className="flex items-center gap-2">
+                {room.settings.isLocked ? (
+                  <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  </svg>
                 )}
+                <span className="text-sm text-midnight-300">
+                  {room.settings.isLocked ? 'Room Locked' : 'Lock Room'}
+                </span>
               </div>
-            )}
+            </label>
+            <p className="text-xs text-midnight-500 px-2">
+              {room.settings.isLocked 
+                ? 'No new players or spectators can join' 
+                : 'Click to prevent new joins'}
+            </p>
 
+            {/* Spectator Management (Only spectators can be kicked, not players) */}
             {room.spectators.length > 0 && (
-              <div className="mt-2">
-                <p className="text-xs text-midnight-400 mb-2">Spectators:</p>
-                {room.spectators.map((spec) => (
-                  <div key={spec.odId} className="flex items-center justify-between p-2 bg-midnight-900 rounded mb-1">
-                    <span className="text-sm text-midnight-300">{spec.name}</span>
-                    <button
-                      onClick={() => kickPlayer(spec.odId)}
-                      className="text-xs text-red-400 hover:text-red-300"
-                    >
-                      Kick
-                    </button>
-                  </div>
-                ))}
+              <div className="mt-3 pt-3 border-t border-midnight-700">
+                <p className="text-xs text-midnight-400 mb-2 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  Spectators ({room.spectators.length}):
+                </p>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {room.spectators.map((spec) => (
+                    <div key={spec.odId} className="flex items-center justify-between p-2 bg-midnight-900 rounded">
+                      <span className="text-sm text-midnight-300">{spec.name}</span>
+                      <button
+                        onClick={() => kickSpectator(spec.odId)}
+                        className="text-xs px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 rounded transition-colors"
+                      >
+                        Kick
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

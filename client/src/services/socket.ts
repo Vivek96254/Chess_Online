@@ -420,31 +420,35 @@ class SocketService {
 
   /**
    * Send chat message
+   * @param roomId - Room ID
+   * @param message - Message content
+   * @param chatType - 'public' for everyone, 'private' for players only
    */
-  sendChatMessage(roomId: string, message: string): Promise<BaseResponse> {
+  sendChatMessage(roomId: string, message: string, chatType: 'public' | 'private' = 'public'): Promise<BaseResponse> {
     return new Promise((resolve) => {
       if (!this.socket) {
         resolve({ success: false, error: 'Not connected' });
         return;
       }
 
-      this.socket.emit('chat:send', { roomId, message }, (response: BaseResponse) => {
+      this.socket.emit('chat:send', { roomId, message, chatType }, (response: BaseResponse) => {
         resolve(response);
       });
     });
   }
 
   /**
-   * Kick a player from room (host only)
+   * Kick a spectator from room (host only)
+   * Note: Only spectators can be kicked, not players
    */
-  kickPlayer(roomId: string, playerId: string): Promise<BaseResponse> {
+  kickSpectator(roomId: string, odId: string): Promise<BaseResponse> {
     return new Promise((resolve) => {
       if (!this.socket) {
         resolve({ success: false, error: 'Not connected' });
         return;
       }
 
-      this.socket.emit('room:kick', { roomId, playerId }, (response: BaseResponse) => {
+      this.socket.emit('room:kick', { roomId, odId }, (response: BaseResponse) => {
         resolve(response);
       });
     });

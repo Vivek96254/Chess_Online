@@ -488,7 +488,7 @@ export function registerSocketHandlers(
     }
   });
 
-  // Handle chat messages
+  // Handle chat messages (public or private)
   socket.on('chat:send', async (payload: ChatMessagePayload, callback: (response: BaseResponse) => void) => {
     try {
       const validated = ChatMessageSchema.parse(payload);
@@ -501,25 +501,62 @@ export function registerSocketHandlers(
         return;
       }
 
+      // Determine if sender is a player
+      const isHost = room.hostId === persistentId;
+      const isOpponent = room.opponentId === persistentId;
+      const isPlayer = isHost || isOpponent;
+      const isSpectator = room.spectators.has(persistentId);
+
       // Get sender name using persistent ID
       let senderName = 'Unknown';
-      if (room.hostId === persistentId) {
+      if (isHost) {
         senderName = room.hostName;
-      } else if (room.opponentId === persistentId) {
+      } else if (isOpponent) {
         senderName = room.opponentName || 'Opponent';
-      } else {
-        const spectator = room.spectators.get(persistentId);
-        if (spectator) {
-          senderName = spectator;
-        }
+      } else if (isSpectator) {
+        senderName = room.spectators.get(persistentId) || 'Spectator';
       }
 
-      io.to(validated.roomId).emit('chat:message', {
-        senderId: persistentId,
-        senderName,
-        message: validated.message,
-        timestamp: Date.now()
-      });
+      const chatType = validated.chatType || 'public';
+
+      // Private chat is only for players
+      if (chatType === 'private') {
+        if (!isPlayer) {
+          callback({ success: false, error: 'Only players can use private chat' });
+          return;
+        }
+
+        // Send only to the two players (host and opponent)
+        // We need to get their socket IDs
+        const hostSession = roomManager.getUserSession(room.hostId);
+        const opponentSession = room.opponentId ? roomManager.getUserSession(room.opponentId) : null;
+
+        const chatData = {
+          senderId: persistentId,
+          senderName,
+          message: validated.message,
+          timestamp: Date.now(),
+          chatType: 'private' as const
+        };
+
+        // Send to host's socket
+        if (hostSession) {
+          io.to(hostSession.socketId).emit('chat:message', chatData);
+        }
+        // Send to opponent's socket
+        if (opponentSession) {
+          io.to(opponentSession.socketId).emit('chat:message', chatData);
+        }
+      } else {
+        // Public chat - send to everyone in the room
+        io.to(validated.roomId).emit('chat:message', {
+          senderId: persistentId,
+          senderName,
+          message: validated.message,
+          timestamp: Date.now(),
+          chatType: 'public' as const
+        });
+      }
 
       callback({ success: true });
     } catch (error) {
@@ -528,48 +565,45 @@ export function registerSocketHandlers(
     }
   });
 
-  // Host controls: Kick player
-  socket.on('room:kick', async (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => {
+  // Host controls: Kick spectator (only spectators can be kicked, not players)
+  socket.on('room:kick', async (payload: { roomId: string; odId: string }, callback: (response: BaseResponse) => void) => {
     try {
-      const result = await roomManager.kickPlayer(payload.roomId, socket.id, payload.playerId);
+      const { odId: hostId } = getPlayerId(socket);
+      const persistentHostId = hostId || socket.id;
+      
+      const result = await roomManager.kickSpectator(payload.roomId, persistentHostId, payload.odId);
       
       if (!result.success) {
-        callback({ success: false, error: 'Cannot kick player' });
+        callback({ success: false, error: result.reason || 'Cannot kick spectator' });
         return;
       }
 
       const room = roomManager.getRoom(payload.roomId);
       if (room) {
-        // Notify the kicked player
-        io.to(payload.playerId).emit('room:kicked', {
+        // Notify the kicked spectator
+        io.to(payload.odId).emit('room:kicked', {
           roomId: payload.roomId,
           reason: 'You were kicked from the room'
         });
 
-        // Notify room about the kick
-        if (result.wasPlayer && result.shouldEndGame && room.gameState) {
-          io.to(payload.roomId).emit('game:ended', {
-            gameState: room.gameState,
-            reason: 'Player was kicked'
-          });
-        }
-
         io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
-        // Notify public room list watchers
-        io.emit('room:list-updated');
       }
 
       callback({ success: true });
+      console.log(`👢 Spectator ${payload.odId} kicked from room ${payload.roomId}`);
     } catch (error) {
-      console.error('Error kicking player:', error);
-      callback({ success: false, error: 'Failed to kick player' });
+      console.error('Error kicking spectator:', error);
+      callback({ success: false, error: 'Failed to kick spectator' });
     }
   });
 
   // Host controls: Lock/unlock room
   socket.on('room:lock', async (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => {
     try {
-      const success = await roomManager.setRoomLocked(payload.roomId, socket.id, payload.locked);
+      const { odId } = getPlayerId(socket);
+      const persistentHostId = odId || socket.id;
+      
+      const success = await roomManager.setRoomLocked(payload.roomId, persistentHostId, payload.locked);
       
       if (!success) {
         callback({ success: false, error: 'Cannot lock/unlock room' });
@@ -584,6 +618,7 @@ export function registerSocketHandlers(
       }
 
       callback({ success: true });
+      console.log(`🔒 Room ${payload.roomId} ${payload.locked ? 'locked' : 'unlocked'}`);
     } catch (error) {
       console.error('Error locking room:', error);
       callback({ success: false, error: 'Failed to lock/unlock room' });
@@ -593,95 +628,10 @@ export function registerSocketHandlers(
   // Host controls: Update room settings
   socket.on('room:update-settings', async (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => {
     try {
-      const success = await roomManager.updateRoomSettings(payload.roomId, socket.id, payload.settings);
+      const { odId } = getPlayerId(socket);
+      const persistentHostId = odId || socket.id;
       
-      if (!success) {
-        callback({ success: false, error: 'Cannot update room settings' });
-        return;
-      }
-
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
-        // Notify public room list watchers if visibility changed
-        if (payload.settings.isPrivate !== undefined || payload.settings.allowJoin !== undefined) {
-          io.emit('room:list-updated');
-        }
-      }
-
-      callback({ success: true });
-    } catch (error) {
-      console.error('Error updating room settings:', error);
-      callback({ success: false, error: 'Failed to update room settings' });
-    }
-  });
-
-  // Host controls: Kick player
-  socket.on('room:kick', async (payload: { roomId: string; playerId: string }, callback: (response: BaseResponse) => void) => {
-    try {
-      const result = await roomManager.kickPlayer(payload.roomId, socket.id, payload.playerId);
-      
-      if (!result.success) {
-        callback({ success: false, error: 'Cannot kick player' });
-        return;
-      }
-
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        // Notify the kicked player
-        io.to(payload.playerId).emit('room:kicked', {
-          roomId: payload.roomId,
-          reason: 'You were kicked from the room'
-        });
-
-        // Notify room about the kick
-        if (result.wasPlayer && result.shouldEndGame && room.gameState) {
-          io.to(payload.roomId).emit('game:ended', {
-            gameState: room.gameState,
-            reason: 'Player was kicked'
-          });
-        }
-
-        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
-        // Notify public room list watchers
-        io.emit('room:list-updated');
-      }
-
-      callback({ success: true });
-    } catch (error) {
-      console.error('Error kicking player:', error);
-      callback({ success: false, error: 'Failed to kick player' });
-    }
-  });
-
-  // Host controls: Lock/unlock room
-  socket.on('room:lock', async (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => {
-    try {
-      const success = await roomManager.setRoomLocked(payload.roomId, socket.id, payload.locked);
-      
-      if (!success) {
-        callback({ success: false, error: 'Cannot lock/unlock room' });
-        return;
-      }
-
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
-        // Notify public room list watchers
-        io.emit('room:list-updated');
-      }
-
-      callback({ success: true });
-    } catch (error) {
-      console.error('Error locking room:', error);
-      callback({ success: false, error: 'Failed to lock/unlock room' });
-    }
-  });
-
-  // Host controls: Update room settings
-  socket.on('room:update-settings', async (payload: { roomId: string; settings: Partial<RoomSettings> }, callback: (response: BaseResponse) => void) => {
-    try {
-      const success = await roomManager.updateRoomSettings(payload.roomId, socket.id, payload.settings);
+      const success = await roomManager.updateRoomSettings(payload.roomId, persistentHostId, payload.settings);
       
       if (!success) {
         callback({ success: false, error: 'Cannot update room settings' });

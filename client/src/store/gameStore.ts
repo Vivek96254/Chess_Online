@@ -42,7 +42,9 @@ interface GameStore {
   // UI state
   isFlipped: boolean;
   showChat: boolean;
-  chatMessages: ChatMessage[];
+  publicChatMessages: ChatMessage[];
+  privateChatMessages: ChatMessage[];
+  activeChatTab: 'public' | 'private';
   drawOffered: boolean;
   drawOfferFrom: string | null;
   notification: { type: 'success' | 'error' | 'info'; message: string } | null;
@@ -52,7 +54,7 @@ interface GameStore {
   connect: () => Promise<void>;
   disconnect: () => void;
   createRoom: (settings?: Partial<RoomSettings>) => Promise<boolean>;
-  kickPlayer: (playerId: string) => Promise<void>;
+  kickSpectator: (spectatorId: string) => Promise<void>;
   lockRoom: (locked: boolean) => Promise<void>;
   updateRoomSettings: (settings: Partial<RoomSettings>) => Promise<void>;
   joinRoom: (roomId: string) => Promise<boolean>;
@@ -64,7 +66,8 @@ interface GameStore {
   offerDraw: () => Promise<void>;
   acceptDraw: () => Promise<void>;
   declineDraw: () => Promise<void>;
-  sendChat: (message: string) => Promise<void>;
+  sendChat: (message: string, chatType?: 'public' | 'private') => Promise<void>;
+  setActiveChatTab: (tab: 'public' | 'private') => void;
   flipBoard: () => void;
   toggleChat: () => void;
   clearNotification: () => void;
@@ -100,7 +103,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   isFlipped: false,
   showChat: false,
-  chatMessages: [],
+  publicChatMessages: [],
+  privateChatMessages: [],
+  activeChatTab: 'public',
   drawOffered: false,
   drawOfferFrom: null,
   notification: null,
@@ -209,9 +214,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
           }
         },
         onChatMessage: (message) => {
-          set(state => ({ 
-            chatMessages: [...state.chatMessages, message]
-          }));
+          if (message.chatType === 'private') {
+            set(state => ({ 
+              privateChatMessages: [...state.privateChatMessages, message]
+            }));
+          } else {
+            set(state => ({ 
+              publicChatMessages: [...state.publicChatMessages, message]
+            }));
+          }
         },
         onDrawOffered: (data) => {
           set({ 
@@ -364,7 +375,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       legalMoves: [],
       lastMove: null,
       isCheck: false,
-      chatMessages: [],
+      publicChatMessages: [],
+      privateChatMessages: [],
+      activeChatTab: 'public',
       drawOffered: false,
       drawOfferFrom: null
     });
@@ -467,10 +480,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ drawOffered: false, drawOfferFrom: null });
   },
 
-  sendChat: async (message: string) => {
+  sendChat: async (message: string, chatType: 'public' | 'private' = 'public') => {
     const { room } = get();
     if (!room) return;
-    await socketService.sendChatMessage(room.roomId, message);
+    const response = await socketService.sendChatMessage(room.roomId, message, chatType);
+    if (!response.success && chatType === 'private') {
+      set({ notification: { type: 'error', message: response.error || 'Cannot send private message' } });
+    }
+  },
+
+  setActiveChatTab: (tab: 'public' | 'private') => {
+    set({ activeChatTab: tab });
   },
 
   flipBoard: () => {
@@ -513,13 +533,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return board;
   },
 
-  kickPlayer: async (targetPlayerId: string) => {
+  kickSpectator: async (spectatorId: string) => {
     const { room } = get();
     if (!room) return;
     
-    const response = await socketService.kickPlayer(room.roomId, targetPlayerId);
+    const response = await socketService.kickSpectator(room.roomId, spectatorId);
     if (!response.success) {
-      set({ notification: { type: 'error', message: response.error || 'Failed to kick player' } });
+      set({ notification: { type: 'error', message: response.error || 'Failed to kick spectator' } });
+    } else {
+      set({ notification: { type: 'success', message: 'Spectator kicked' } });
     }
   },
 

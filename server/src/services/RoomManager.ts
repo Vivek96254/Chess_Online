@@ -782,39 +782,41 @@ export class RoomManager {
   }
 
   /**
-   * Kick a player from a room (host only)
+   * Kick a spectator from a room (host only)
+   * Note: Only spectators can be kicked, not players. This prevents game disruption.
    */
-  async kickPlayer(roomId: string, hostId: string, targetPlayerId: string): Promise<{
+  async kickSpectator(roomId: string, hostId: string, targetSpectatorId: string): Promise<{
     success: boolean;
-    wasPlayer: boolean;
-    shouldEndGame: boolean;
+    reason?: string;
   }> {
     const room = this.rooms.get(roomId);
-    if (!room) return { success: false, wasPlayer: false, shouldEndGame: false };
+    if (!room) return { success: false, reason: 'Room not found' };
     
     // Only host can kick
-    if (room.hostId !== hostId) return { success: false, wasPlayer: false, shouldEndGame: false };
+    if (room.hostId !== hostId) return { success: false, reason: 'Only host can kick' };
     
     // Can't kick yourself
-    if (targetPlayerId === hostId) return { success: false, wasPlayer: false, shouldEndGame: false };
+    if (targetSpectatorId === hostId) return { success: false, reason: 'Cannot kick yourself' };
 
-    // Check if target is opponent
-    if (room.opponentId === targetPlayerId) {
-      // Remove opponent
-      const result = await this.leaveRoom(targetPlayerId);
-      return { success: result.wasPlayer, wasPlayer: true, shouldEndGame: result.shouldEndGame };
+    // Cannot kick players - only spectators
+    if (room.opponentId === targetSpectatorId) {
+      return { success: false, reason: 'Cannot kick players. Only spectators can be kicked.' };
     }
 
     // Check if target is spectator
-    if (room.spectators.has(targetPlayerId)) {
-      room.spectators.delete(targetPlayerId);
+    if (room.spectators.has(targetSpectatorId)) {
+      room.spectators.delete(targetSpectatorId);
+      
+      // Also remove their session if they have one
+      this.removeUserSession(targetSpectatorId);
+      
       if (this.redis) {
         await this.redis.setRoom(this.serializeRoom(room));
       }
-      return { success: true, wasPlayer: false, shouldEndGame: false };
+      return { success: true };
     }
 
-    return { success: false, wasPlayer: false, shouldEndGame: false };
+    return { success: false, reason: 'Spectator not found' };
   }
 
   /**
