@@ -112,22 +112,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ connectionStatus: 'connecting', sessionRestored: false, sessionRestoring: false });
     
     try {
-      await socketService.connect();
-      
-      // Setup callbacks
+      // Setup callbacks BEFORE connecting so they're ready when events fire
       socketService.setCallbacks({
         onConnect: () => {
           set({ 
             connectionStatus: 'connected',
             playerId: socketService.getSocketId()
           });
-          
-          // Automatically try to restore session for authenticated users
-          if (socketService.isAuthenticatedConnection()) {
-            get().restoreSession();
-          } else {
-            set({ sessionRestored: true });
-          }
         },
         onDisconnect: () => {
           set({ connectionStatus: 'disconnected' });
@@ -246,7 +237,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       });
 
+      // Now connect to the server
+      await socketService.connect();
+
       set({ connectionStatus: 'connected', playerId: socketService.getSocketId() });
+
+      // Automatically try to restore session for authenticated users AFTER connection is established
+      if (socketService.isAuthenticatedConnection()) {
+        console.log('🔄 Attempting session restoration for authenticated user...');
+        await get().restoreSession();
+      } else {
+        console.log('ℹ️ Anonymous user - no session to restore');
+        set({ sessionRestored: true });
+      }
 
       // Start latency measurement
       setInterval(async () => {
@@ -256,6 +259,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     } catch {
       set({ 
         connectionStatus: 'disconnected',
+        sessionRestored: true, // Mark as restored even on failure to unblock UI
         notification: { type: 'error', message: 'Failed to connect to server' }
       });
     }
@@ -553,9 +557,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const chess = room.gameState ? new Chess(room.gameState.fen) : null;
         const isSpectator = session.role === 'spectator';
         
+        // Determine player ID based on role
+        let playerId: string | null = null;
+        if (session.role === 'host') {
+          playerId = room.hostId;
+        } else if (session.role === 'opponent') {
+          playerId = room.opponentId;
+        }
+        
         set({
           room,
-          playerId: room.hostId === session.roomId ? room.hostId : room.opponentId,
+          playerId,
           playerColor: session.color,
           isSpectator,
           gameState: room.gameState,
@@ -566,7 +578,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
           notification: { type: 'success', message: 'Session restored! Welcome back.' }
         });
 
-        console.log(`🔄 Session restored: room ${session.roomId}, role ${session.role}`);
+        console.log(`🔄 Session restored: room ${session.roomId}, role ${session.role}, color ${session.color}`);
         return session;
       } else {
         set({ sessionRestored: true, sessionRestoring: false });

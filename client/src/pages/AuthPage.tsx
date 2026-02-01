@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
+import { socketService } from '../services/socket';
 
 type AuthMode = 'login' | 'register';
 
@@ -16,7 +17,7 @@ export default function AuthPage() {
     error, 
     clearError 
   } = useAuthStore();
-  const { setPlayerName, connectionStatus } = useGameStore();
+  const { setPlayerName, connectionStatus, connect } = useGameStore();
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [username, setUsername] = useState('');
@@ -77,6 +78,13 @@ export default function AuthPage() {
     if (success) {
       // Set player name from username
       setPlayerName(username);
+      
+      // Reconnect socket with new auth token
+      // This ensures the socket is authenticated for session tracking
+      console.log('🔄 Reconnecting socket with auth token after login...');
+      socketService.disconnect();
+      await connect();
+      
       navigate('/');
     }
   };

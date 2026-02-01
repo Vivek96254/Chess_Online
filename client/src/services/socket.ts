@@ -46,10 +46,17 @@ function getAuthToken(): string | null {
     const authStorage = localStorage.getItem('chess-auth-storage');
     if (authStorage) {
       const parsed = JSON.parse(authStorage);
-      return parsed?.state?.tokens?.accessToken || null;
+      const token = parsed?.state?.tokens?.accessToken || null;
+      if (token) {
+        console.log('🔑 Found auth token in storage');
+      } else {
+        console.log('ℹ️ No access token in auth storage');
+      }
+      return token;
     }
-  } catch {
-    // Ignore parsing errors
+    console.log('ℹ️ No auth storage found');
+  } catch (e) {
+    console.error('⚠️ Error reading auth token:', e);
   }
   return null;
 }

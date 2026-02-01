@@ -60,14 +60,27 @@ export function registerSocketHandlers(
     try {
       const { odId } = getPlayerId(socket);
       
+      console.log(`📋 Session restore requested - socket: ${socket.id}, userId: ${odId || 'none'}`);
+      
       if (!odId) {
+        console.log('❌ Session restore failed: Not authenticated');
         callback({ success: false, error: 'Not authenticated' });
         return;
       }
 
+      // Check if user has an existing session
+      const existingSession = roomManager.getUserSession(odId);
+      console.log(`📋 Existing session for ${odId}:`, existingSession ? {
+        roomId: existingSession.roomId,
+        role: existingSession.role,
+        color: existingSession.color,
+        isConnected: existingSession.isConnected
+      } : 'none');
+
       const result = await roomManager.restoreSession(odId, socket.id);
       
       if (!result) {
+        console.log(`❌ Session restore failed: No active session found for user ${odId}`);
         callback({ success: false, error: 'No active session found' });
         return;
       }
@@ -94,7 +107,7 @@ export function registerSocketHandlers(
         room: serializedRoom
       });
 
-      console.log(`🔄 Session restored for ${odId} in room ${room.roomId}`);
+      console.log(`✅ Session restored for ${odId} in room ${room.roomId} as ${session.role}`);
     } catch (error) {
       console.error('Error restoring session:', error);
       callback({ success: false, error: 'Failed to restore session' });
@@ -133,6 +146,9 @@ export function registerSocketHandlers(
       });
 
       console.log(`🏠 Room created: ${room.roomId} by ${validated.playerName}${odId ? ` (user: ${odId})` : ''}`);
+      if (odId) {
+        console.log(`📋 Session registered for user ${odId} in room ${room.roomId} as host`);
+      }
     } catch (error) {
       console.error('Error creating room:', error);
       callback({ success: false, error: 'Failed to create room' });
