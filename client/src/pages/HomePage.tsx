@@ -28,6 +28,8 @@ export default function HomePage() {
   const [allowJoin] = useState(true);
   const [allowSpectators] = useState(true);
   const [roomName] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
 
   useEffect(() => {
     // Check for room in URL params
@@ -69,11 +71,22 @@ export default function HomePage() {
     if (!playerName.trim() || !roomCode.trim()) return;
     
     setIsJoining(true);
-    const success = await joinRoom(roomCode.toUpperCase());
+    const success = await joinRoom(roomCode.toUpperCase(), needsPassword ? joinPassword : undefined);
     setIsJoining(false);
     
     if (success) {
+      setShowJoinModal(false);
+      setRoomCode('');
+      setJoinPassword('');
+      setNeedsPassword(false);
       navigate(`/game/${roomCode.toUpperCase()}`);
+    } else {
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
@@ -81,11 +94,22 @@ export default function HomePage() {
     if (!roomCode.trim()) return;
     
     setIsJoining(true);
-    const success = await spectateRoom(roomCode.toUpperCase());
+    const success = await spectateRoom(roomCode.toUpperCase(), needsPassword ? joinPassword : undefined);
     setIsJoining(false);
     
     if (success) {
+      setShowSpectateModal(false);
+      setRoomCode('');
+      setJoinPassword('');
+      setNeedsPassword(false);
       navigate(`/game/${roomCode.toUpperCase()}`);
+    } else {
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
@@ -96,23 +120,41 @@ export default function HomePage() {
     }
     
     setIsJoining(true);
-    const success = await joinRoom(roomCode.toUpperCase());
+    const success = await joinRoom(roomCode.toUpperCase(), needsPassword ? joinPassword : undefined);
     setIsJoining(false);
     
     if (success) {
       setShowJoinModeModal(false);
+      setJoinPassword('');
+      setNeedsPassword(false);
       navigate(`/game/${roomCode.toUpperCase()}`);
+    } else {
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
   const handleJoinAsSpectatorFromModal = async () => {
     setIsJoining(true);
-    const success = await spectateRoom(roomCode.toUpperCase());
+    const success = await spectateRoom(roomCode.toUpperCase(), needsPassword ? joinPassword : undefined);
     setIsJoining(false);
     
     if (success) {
       setShowJoinModeModal(false);
+      setJoinPassword('');
+      setNeedsPassword(false);
       navigate(`/game/${roomCode.toUpperCase()}`);
+    } else {
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
@@ -377,11 +419,33 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* Password field - shows after failed attempt or if known to be locked */}
+            {needsPassword && (
+              <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span className="text-sm font-medium text-purple-400">This room requires a password</span>
+                </div>
+                <input
+                  type="password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  placeholder="Enter room password"
+                  className="input border-purple-500/30 focus:border-purple-500"
+                  maxLength={50}
+                />
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => {
                   setShowJoinModal(false);
                   setRoomCode('');
+                  setJoinPassword('');
+                  setNeedsPassword(false);
                 }}
                 className="btn btn-secondary flex-1"
               >
@@ -424,11 +488,33 @@ export default function HomePage() {
               />
             </div>
 
+            {/* Password field - shows after failed attempt or if known to be locked */}
+            {needsPassword && (
+              <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span className="text-sm font-medium text-purple-400">This room requires a password</span>
+                </div>
+                <input
+                  type="password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  placeholder="Enter room password"
+                  className="input border-purple-500/30 focus:border-purple-500"
+                  maxLength={50}
+                />
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => {
                   setShowSpectateModal(false);
                   setRoomCode('');
+                  setJoinPassword('');
+                  setNeedsPassword(false);
                 }}
                 className="btn btn-secondary flex-1"
               >
@@ -481,6 +567,26 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* Password field - shows after failed attempt */}
+            {needsPassword && (
+              <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span className="text-sm font-medium text-purple-400">This room requires a password</span>
+                </div>
+                <input
+                  type="password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  placeholder="Enter room password"
+                  className="input border-purple-500/30 focus:border-purple-500"
+                  maxLength={50}
+                />
+              </div>
+            )}
+
             <div className="space-y-3">
               <button
                 onClick={handleJoinAsPlayerFromModal}
@@ -510,6 +616,8 @@ export default function HomePage() {
               onClick={() => {
                 setShowJoinModeModal(false);
                 setRoomCode('');
+                setJoinPassword('');
+                setNeedsPassword(false);
                 // Clear room param from URL
                 const url = new URL(window.location.href);
                 url.searchParams.delete('room');

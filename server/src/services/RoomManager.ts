@@ -804,7 +804,8 @@ export class RoomManager {
         spectatorCount: room.spectators.size,
         timeControl: room.settings.timeControl,
         createdAt: room.createdAt,
-        lastActivity: room.lastActivity
+        lastActivity: room.lastActivity,
+        isLocked: room.settings.isLocked
       });
     }
     // Sort by last activity (most recent first)

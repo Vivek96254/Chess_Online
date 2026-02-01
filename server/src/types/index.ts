@@ -54,6 +54,7 @@ export interface RoomListing {
   timeControl: TimeControl | null;
   createdAt: number;
   lastActivity: number;
+  isLocked: boolean; // Whether room requires password to join
 }
 
 // Room settings

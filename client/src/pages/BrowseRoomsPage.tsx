@@ -17,6 +17,8 @@ export default function BrowseRoomsPage() {
     hasTimeControl?: boolean;
   }>({});
   const [previewRoom, setPreviewRoom] = useState<RoomListing | null>(null);
+  const [roomPassword, setRoomPassword] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
   const isFetchingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -106,17 +108,49 @@ export default function BrowseRoomsPage() {
       navigate(`/?room=${room.roomId}`);
       return;
     }
-    const success = await joinRoom(room.roomId);
+    
+    // For locked rooms, password is required
+    if (room.isLocked && !roomPassword.trim()) {
+      useGameStore.setState({ 
+        notification: { type: 'error', message: 'Password is required for this room' } 
+      });
+      return;
+    }
+    
+    setIsJoining(true);
+    const success = await joinRoom(room.roomId, room.isLocked ? roomPassword : undefined);
+    setIsJoining(false);
+    
     if (success) {
+      setPreviewRoom(null);
+      setRoomPassword('');
       navigate(`/game/${room.roomId}`);
     }
   };
 
   const handleSpectate = async (room: RoomListing) => {
-    const success = await spectateRoom(room.roomId);
+    // For locked rooms, password is required
+    if (room.isLocked && !roomPassword.trim()) {
+      useGameStore.setState({ 
+        notification: { type: 'error', message: 'Password is required for this room' } 
+      });
+      return;
+    }
+    
+    setIsJoining(true);
+    const success = await spectateRoom(room.roomId, room.isLocked ? roomPassword : undefined);
+    setIsJoining(false);
+    
     if (success) {
+      setPreviewRoom(null);
+      setRoomPassword('');
       navigate(`/game/${room.roomId}`);
     }
+  };
+  
+  const handleClosePreview = () => {
+    setPreviewRoom(null);
+    setRoomPassword('');
   };
 
   return (
@@ -220,19 +254,31 @@ export default function BrowseRoomsPage() {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
-                      <h3 className="font-bold text-white text-lg mb-1">
+                      <h3 className="font-bold text-white text-lg mb-1 flex items-center gap-2">
                         {room.roomName || `Room ${room.roomId.slice(0, 8)}`}
+                        {room.isLocked && (
+                          <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        )}
                       </h3>
                       <p className="text-sm text-midnight-400">Host: {room.hostName}</p>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      room.state === 'waiting_for_player' ? 'bg-yellow-500/20 text-yellow-400' :
-                      room.state === 'in_progress' ? 'bg-green-500/20 text-green-400' :
-                      'bg-midnight-600 text-midnight-300'
-                    }`}>
-                      {room.state === 'waiting_for_player' ? 'Waiting' :
-                       room.state === 'in_progress' ? 'Playing' : 'Finished'}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        room.state === 'waiting_for_player' ? 'bg-yellow-500/20 text-yellow-400' :
+                        room.state === 'in_progress' ? 'bg-green-500/20 text-green-400' :
+                        'bg-midnight-600 text-midnight-300'
+                      }`}>
+                        {room.state === 'waiting_for_player' ? 'Waiting' :
+                         room.state === 'in_progress' ? 'Playing' : 'Finished'}
+                      </span>
+                      {room.isLocked && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/20 text-purple-400">
+                          Password
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-4 text-sm text-midnight-300 mb-3">
@@ -276,11 +322,16 @@ export default function BrowseRoomsPage() {
             className="card p-6 w-full max-w-md"
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-xl font-bold text-white">
+              <h3 className="font-display text-xl font-bold text-white flex items-center gap-2">
                 {previewRoom.roomName || `Room ${previewRoom.roomId.slice(0, 8)}`}
+                {previewRoom.isLocked && (
+                  <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                )}
               </h3>
               <button
-                onClick={() => setPreviewRoom(null)}
+                onClick={handleClosePreview}
                 className="p-2 rounded-lg bg-midnight-700 hover:bg-midnight-600 transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -321,23 +372,52 @@ export default function BrowseRoomsPage() {
                 <span className="text-midnight-300">Room Code</span>
                 <span className="text-accent font-mono font-bold">{previewRoom.roomId}</span>
               </div>
+              {previewRoom.isLocked && (
+                <div className="flex items-center justify-between">
+                  <span className="text-midnight-300">Security</span>
+                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-400">
+                    Password Protected
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Password field for locked rooms */}
+            {previewRoom.isLocked && (
+              <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span className="text-sm font-medium text-purple-400">Enter room password</span>
+                </div>
+                <input
+                  type="password"
+                  value={roomPassword}
+                  onChange={(e) => setRoomPassword(e.target.value)}
+                  placeholder="Password"
+                  className="input border-purple-500/30 focus:border-purple-500 w-full"
+                  maxLength={50}
+                />
+              </div>
+            )}
 
             <div className="flex gap-3">
               {previewRoom.state === 'waiting_for_player' && (
                 <button
                   onClick={() => handleJoin(previewRoom)}
-                  disabled={!playerName}
+                  disabled={!playerName || isJoining || (previewRoom.isLocked && !roomPassword.trim())}
                   className="btn btn-primary flex-1"
                 >
-                  Join as Player
+                  {isJoining ? 'Joining...' : 'Join as Player'}
                 </button>
               )}
               <button
                 onClick={() => handleSpectate(previewRoom)}
+                disabled={isJoining || (previewRoom.isLocked && !roomPassword.trim())}
                 className="btn btn-secondary flex-1"
               >
-                Spectate
+                {isJoining ? 'Joining...' : 'Spectate'}
               </button>
             </div>
           </motion.div>
