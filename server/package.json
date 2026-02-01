@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsc && npm run copy-migrations",
+    "copy-migrations": "mkdir -p dist/db/migrations && cp -r src/db/migrations/*.sql dist/db/migrations/",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
