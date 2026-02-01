@@ -1,6 +1,14 @@
 # Render Blueprint Configuration
 # https://render.com/docs/blueprint-spec
 
+databases:
+  # PostgreSQL Database
+  - name: chess-db
+    region: oregon
+    plan: free
+    databaseName: chess_online
+    user: chess
+
 services:
   # Backend - Node.js Web Service
   - type: web
@@ -18,6 +26,12 @@ services:
         value: 3001
       - key: CLIENT_URL
         sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chess-db
+          property: connectionString
       - key: REDIS_URL
         fromService:
           type: redis
@@ -28,6 +42,8 @@ services:
   - type: web
     name: chess-frontend
     env: static
+    region: oregon
+    plan: free
     buildCommand: cd client && npm install && npm run build
     staticPublishPath: client/dist
     headers:

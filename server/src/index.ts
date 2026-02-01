@@ -4,11 +4,16 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
 import { RoomManager } from './services/RoomManager.js';
 import { RedisService } from './services/RedisService.js';
+import { DatabaseService } from './services/DatabaseService.js';
+import { UserService } from './services/UserService.js';
+import { AuthService } from './services/AuthService.js';
 import { registerSocketHandlers } from './sockets/handlers.js';
+import { createAuthRoutes } from './routes/auth.js';
 import type { ServerToClientEvents, ClientToServerEvents, RoomState } from './types/index.js';
 
 // Load environment variables
@@ -57,6 +62,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use(cookieParser());
 
 // Rate limiting
 const limiter = rateLimit({
@@ -81,9 +87,36 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 // Initialize services
 let redis: RedisService | null = null;
+let database: DatabaseService | null = null;
+let userService: UserService | null = null;
+let authService: AuthService | null = null;
 let roomManager: RoomManager;
 
 async function initializeServices(): Promise<void> {
+  // Try to connect to PostgreSQL if DATABASE_URL is provided
+  if (process.env.DATABASE_URL) {
+    try {
+      database = new DatabaseService(process.env.DATABASE_URL);
+      const connected = await database.connect();
+      
+      if (connected) {
+        await database.runMigrations();
+        userService = new UserService(database);
+        authService = new AuthService(database, userService);
+        console.log('✅ PostgreSQL connected and migrations complete');
+        
+        // Register auth routes
+        app.use('/api/auth', createAuthRoutes(authService, userService));
+        console.log('✅ Auth routes registered');
+      }
+    } catch (error) {
+      console.warn('⚠️ PostgreSQL connection failed:', error);
+      database = null;
+    }
+  } else {
+    console.log('ℹ️ No DATABASE_URL provided, auth features disabled');
+  }
+
   // Try to connect to Redis if URL is provided
   if (REDIS_URL) {
     try {
@@ -105,12 +138,16 @@ async function initializeServices(): Promise<void> {
 // Health check endpoint
 app.get('/health', async (_req, res) => {
   const redisHealthy = redis ? await redis.ping() : true;
+  const dbHealth = database ? await database.healthCheck() : { status: 'not configured', latency: 0 };
   
   res.json({
-    status: redisHealthy ? 'healthy' : 'degraded',
+    status: redisHealthy && dbHealth.status !== 'unhealthy' ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     redis: redis ? (redisHealthy ? 'connected' : 'disconnected') : 'not configured',
+    database: dbHealth.status,
+    dbLatency: dbHealth.latency,
+    authEnabled: !!authService,
     version: '1.0.0'
   });
 });
@@ -193,6 +230,11 @@ async function shutdown(): Promise<void> {
     await redis.disconnect();
   }
 
+  // Disconnect Database
+  if (database) {
+    await database.disconnect();
+  }
+
   process.exit(0);
 }
 
@@ -212,7 +254,9 @@ async function start(): Promise<void> {
 ║   🚀 Server running on port ${PORT}                       ║
 ║   🌍 Environment: ${NODE_ENV.padEnd(10)}                  ║
 ║   🔗 Client URL: ${CLIENT_URL.slice(0, 30).padEnd(30)}    ║
-║   📦 Redis: ${redis ? 'Connected' : 'In-Memory'.padEnd(10)}                         ║
+║   📦 Redis: ${(redis ? 'Connected' : 'In-Memory').padEnd(10)}                        ║
+║   🗄️  Database: ${(database ? 'Connected' : 'Disabled').padEnd(10)}                     ║
+║   🔐 Auth: ${(authService ? 'Enabled' : 'Disabled').padEnd(10)}                          ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
     `);

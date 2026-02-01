@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useGameStore } from '../store/gameStore';
+import { useAuthStore } from '../store/authStore';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -13,6 +14,8 @@ export default function HomePage() {
     spectateRoom,
     connectionStatus 
   } = useGameStore();
+  
+  const { isAuthenticated, user, logout } = useAuthStore();
 
   const [roomCode, setRoomCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -134,11 +137,43 @@ export default function HomePage() {
               <p className="text-midnight-400 text-sm">Play with friends worldwide</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`status-dot ${connectionStatus === 'connected' ? 'online' : 'offline'}`}></span>
-            <span className="text-sm text-midnight-300">
-              {connectionStatus === 'connected' ? 'Connected' : 'Disconnected'}
-            </span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className={`status-dot ${connectionStatus === 'connected' ? 'online' : 'offline'}`}></span>
+              <span className="text-sm text-midnight-300">
+                {connectionStatus === 'connected' ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+            
+            {/* Auth buttons */}
+            {isAuthenticated && user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-midnight-800 border border-midnight-700">
+                  <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-xs font-bold text-midnight-950">
+                    {(user.displayName || user.username).charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-sm text-white font-medium">
+                    {user.displayName || user.username}
+                  </span>
+                </div>
+                <button
+                  onClick={async () => {
+                    await logout();
+                    setPlayerName('');
+                  }}
+                  className="text-sm text-midnight-400 hover:text-white transition-colors"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => navigate('/auth')}
+                className="btn btn-secondary text-sm py-1.5 px-4"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         </div>
       </header>

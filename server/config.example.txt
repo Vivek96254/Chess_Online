@@ -24,6 +24,24 @@ CLIENT_URL=http://localhost:5173
 # For multiple origins: CLIENT_URL=https://app.example.com,https://www.example.com
 
 ────────────────────────────────────────────────────────────────
+# PostgreSQL Database (Required for Authentication)
+────────────────────────────────────────────────────────────────
+
+DATABASE_URL=postgresql://chess:chess_password@localhost:5432/chess_online
+# PostgreSQL connection string
+# Format: postgresql://user:password@host:port/database
+# Required for user authentication and game history
+
+────────────────────────────────────────────────────────────────
+# JWT Authentication
+────────────────────────────────────────────────────────────────
+
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+# Secret key for signing JWT tokens
+# IMPORTANT: Generate a strong random string for production!
+# Example: openssl rand -base64 64
+
+────────────────────────────────────────────────────────────────
 # Redis Configuration (Optional)
 ────────────────────────────────────────────────────────────────
 
@@ -31,9 +49,42 @@ CLIENT_URL=http://localhost:5173
 # Redis connection string for state management
 # If not provided, server uses in-memory storage (not recommended for production)
 
-────────────────────────────────────────────────────────────────
-# Database Configuration (Optional - for match history)
-────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════
+                     DOCKER COMPOSE SETUP
+════════════════════════════════════════════════════════════════
 
-# DATABASE_URL=postgresql://user:password@localhost:5432/chess
-# PostgreSQL connection string for persistent match history
+Run locally with Docker:
+
+  docker compose up -d
+
+This starts:
+  - Backend API on port 3001
+  - Frontend on port 5173  
+  - PostgreSQL on port 5432
+  - Redis on port 6379
+
+For development with database admin:
+
+  docker compose --profile dev up -d
+
+This also starts:
+  - PgAdmin on port 5050 (admin@chess.local / admin)
+
+════════════════════════════════════════════════════════════════
+                     RENDER DEPLOYMENT
+════════════════════════════════════════════════════════════════
+
+Deploy to Render:
+
+1. Push your code to GitHub
+2. Create a new Blueprint on Render
+3. Connect your repo and select render.yaml
+4. Set environment variables:
+   - CLIENT_URL: Your frontend URL (e.g., https://chess-frontend-xxx.onrender.com)
+   - VITE_WS_URL: Your backend URL (e.g., https://chess-backend-xxx.onrender.com)
+
+The render.yaml will automatically:
+  - Create a PostgreSQL database
+  - Create a Redis instance
+  - Generate a JWT_SECRET
+  - Connect everything together
