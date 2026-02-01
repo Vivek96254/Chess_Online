@@ -33,6 +33,9 @@ export class RoomManager {
   // Session management for authenticated users
   private userSessions: Map<string, UserSession> = new Map(); // odId -> session
   private socketToUser: Map<string, string> = new Map(); // socketId -> odId
+  
+  // Track kicked users to prevent immediate rejoin
+  private kickedUsers: Map<string, { roomId: string; kickedAt: number }> = new Map();
 
   constructor(redis?: RedisService) {
     this.redis = redis || null;
@@ -261,19 +264,29 @@ export class RoomManager {
     roomId: string,
     playerId: string,
     playerName: string,
-    odId?: string
-  ): Promise<{ room: Room; color: PlayerColor } | null> {
+    odId?: string,
+    password?: string
+  ): Promise<{ room: Room; color: PlayerColor } | { error: string } | null> {
     const room = this.rooms.get(roomId);
     
     if (!room) return null;
-    if (room.state !== 'waiting_for_player') return null;
-    if (room.opponentId !== null) return null;
+    if (room.state !== 'waiting_for_player') return { error: 'Game already started' };
+    if (room.opponentId !== null) return { error: 'Room is full' };
     
     // Use persistent ID for comparison
     const persistentPlayerId = odId || playerId;
-    if (room.hostId === persistentPlayerId) return null;
-    if (!room.settings.allowJoin) return null; // Check if joining is allowed
-    if (room.settings.isLocked) return null; // Check if room is locked
+    if (room.hostId === persistentPlayerId) return { error: 'Cannot join your own room' };
+    if (!room.settings.allowJoin) return { error: 'Room is not accepting players' };
+    
+    // Check password if room is locked
+    if (room.settings.isLocked) {
+      if (!room.settings.password) {
+        return { error: 'Room is locked' };
+      }
+      if (password !== room.settings.password) {
+        return { error: 'Incorrect password' };
+      }
+    }
 
     // Use userId as opponentId for authenticated users (persistent identity)
     room.opponentId = persistentPlayerId;
@@ -314,15 +327,32 @@ export class RoomManager {
     roomId: string,
     spectatorId: string,
     spectatorName: string = 'Spectator',
-    odId?: string
-  ): Promise<Room | null> {
+    odId?: string,
+    password?: string
+  ): Promise<{ room: Room } | { error: string } | null> {
     const room = this.rooms.get(roomId);
     
     if (!room) return null;
-    if (!room.settings.allowSpectators) return null;
+    if (!room.settings.allowSpectators) return { error: 'Spectators not allowed' };
 
     // Use persistent ID for spectator map
     const persistentId = odId || spectatorId;
+    
+    // Check if user was kicked from this room
+    if (this.wasKickedFromRoom(persistentId, roomId)) {
+      return { error: 'You were kicked from this room. Please wait before rejoining.' };
+    }
+
+    // Check password if room is locked
+    if (room.settings.isLocked) {
+      if (!room.settings.password) {
+        return { error: 'Room is locked' };
+      }
+      if (password !== room.settings.password) {
+        return { error: 'Incorrect password' };
+      }
+    }
+
     room.spectators.set(persistentId, spectatorName);
     room.lastActivity = Date.now();
 
@@ -335,7 +365,7 @@ export class RoomManager {
       await this.redis.setRoom(this.serializeRoom(room));
     }
 
-    return room;
+    return { room };
   }
 
   /**
@@ -784,10 +814,12 @@ export class RoomManager {
   /**
    * Kick a spectator from a room (host only)
    * Note: Only spectators can be kicked, not players. This prevents game disruption.
+   * Returns the spectator's socket ID so the caller can properly disconnect them.
    */
   async kickSpectator(roomId: string, hostId: string, targetSpectatorId: string): Promise<{
     success: boolean;
     reason?: string;
+    socketId?: string;
   }> {
     const room = this.rooms.get(roomId);
     if (!room) return { success: false, reason: 'Room not found' };
@@ -807,16 +839,46 @@ export class RoomManager {
     if (room.spectators.has(targetSpectatorId)) {
       room.spectators.delete(targetSpectatorId);
       
-      // Also remove their session if they have one
+      // Get their socket ID before removing session
+      const session = this.userSessions.get(targetSpectatorId);
+      const socketId = session?.socketId;
+      
+      // Remove their session
       this.removeUserSession(targetSpectatorId);
+      
+      // Track kicked user to prevent immediate rejoin (5 minute cooldown)
+      this.kickedUsers.set(targetSpectatorId, {
+        roomId,
+        kickedAt: Date.now()
+      });
+      
+      // Clean up kicked user after 5 minutes
+      setTimeout(() => {
+        this.kickedUsers.delete(targetSpectatorId);
+      }, 5 * 60 * 1000);
       
       if (this.redis) {
         await this.redis.setRoom(this.serializeRoom(room));
       }
-      return { success: true };
+      return { success: true, socketId };
     }
 
     return { success: false, reason: 'Spectator not found' };
+  }
+
+  /**
+   * Check if a user was kicked from a room recently
+   */
+  wasKickedFromRoom(odId: string, roomId: string): boolean {
+    const kickInfo = this.kickedUsers.get(odId);
+    if (!kickInfo) return false;
+    
+    // Check if it's the same room and within cooldown period (5 minutes)
+    if (kickInfo.roomId === roomId && (Date.now() - kickInfo.kickedAt) < 5 * 60 * 1000) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**
@@ -903,8 +965,12 @@ export class RoomManager {
 
   /**
    * Serialize room for network/storage
+   * Note: Password is intentionally excluded from serialization for security
    */
   serializeRoom(room: Room): SerializableRoom {
+    // Create settings copy without password (don't expose to clients)
+    const { password, ...safeSettings } = room.settings;
+    
     return {
       roomId: room.roomId,
       hostId: room.hostId,
@@ -917,7 +983,7 @@ export class RoomManager {
       createdAt: room.createdAt,
       lastActivity: room.lastActivity,
       gameState: room.gameState,
-      settings: room.settings
+      settings: safeSettings
     };
   }
 

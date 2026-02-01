@@ -172,11 +172,18 @@ export function registerSocketHandlers(
         validated.roomId,
         socketId,
         validated.playerName,
-        odId // Pass userId for authenticated users
+        odId, // Pass userId for authenticated users
+        validated.password // Pass password for locked rooms
       );
 
       if (!result) {
-        callback({ success: false, error: 'Cannot join room' });
+        callback({ success: false, error: 'Room not found' });
+        return;
+      }
+
+      // Check for error response
+      if ('error' in result) {
+        callback({ success: false, error: result.error });
         return;
       }
 
@@ -227,17 +234,26 @@ export function registerSocketHandlers(
       const validated = SpectateRoomSchema.parse(payload);
       const { socketId, odId } = getPlayerId(socket);
       
-      const room = await roomManager.spectateRoom(
+      const result = await roomManager.spectateRoom(
         validated.roomId,
         socketId,
         validated.spectatorName || `Spectator-${socketId.slice(0, 4)}`,
-        odId // Pass userId for authenticated users
+        odId, // Pass userId for authenticated users
+        validated.password // Pass password for locked rooms
       );
 
-      if (!room) {
-        callback({ success: false, error: 'Cannot spectate room' });
+      if (!result) {
+        callback({ success: false, error: 'Room not found' });
         return;
       }
+
+      // Check for error response
+      if ('error' in result) {
+        callback({ success: false, error: result.error });
+        return;
+      }
+
+      const { room } = result;
 
       // Join socket room
       socket.join(room.roomId);
@@ -578,14 +594,31 @@ export function registerSocketHandlers(
         return;
       }
 
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        // Notify the kicked spectator
+      // Get the spectator's socket to properly disconnect them
+      if (result.socketId) {
+        const spectatorSocket = io.sockets.sockets.get(result.socketId);
+        if (spectatorSocket) {
+          // Notify the kicked spectator before disconnecting
+          spectatorSocket.emit('room:kicked', {
+            roomId: payload.roomId,
+            reason: 'You were kicked from the room'
+          });
+          
+          // Remove them from the socket.io room
+          spectatorSocket.leave(payload.roomId);
+          
+          console.log(`👢 Spectator socket ${result.socketId} removed from room ${payload.roomId}`);
+        }
+      } else {
+        // Fallback: emit to the user ID (may not work if socket mapping is different)
         io.to(payload.odId).emit('room:kicked', {
           roomId: payload.roomId,
           reason: 'You were kicked from the room'
         });
+      }
 
+      const room = roomManager.getRoom(payload.roomId);
+      if (room) {
         io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
       }
 
@@ -597,28 +630,43 @@ export function registerSocketHandlers(
     }
   });
 
-  // Host controls: Lock/unlock room
-  socket.on('room:lock', async (payload: { roomId: string; locked: boolean }, callback: (response: BaseResponse) => void) => {
+  // Host controls: Set room password (lock/unlock with password)
+  socket.on('room:lock', async (payload: { roomId: string; locked: boolean; password?: string }, callback: (response: BaseResponse) => void) => {
     try {
       const { odId } = getPlayerId(socket);
       const persistentHostId = odId || socket.id;
       
-      const success = await roomManager.setRoomLocked(payload.roomId, persistentHostId, payload.locked);
+      const room = roomManager.getRoom(payload.roomId);
+      if (!room) {
+        callback({ success: false, error: 'Room not found' });
+        return;
+      }
       
-      if (!success) {
-        callback({ success: false, error: 'Cannot lock/unlock room' });
+      if (room.hostId !== persistentHostId) {
+        callback({ success: false, error: 'Only host can manage room lock' });
         return;
       }
 
-      const room = roomManager.getRoom(payload.roomId);
-      if (room) {
-        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
+      // Update room settings with lock and password
+      const success = await roomManager.updateRoomSettings(payload.roomId, persistentHostId, {
+        isLocked: payload.locked,
+        password: payload.locked ? payload.password : undefined
+      });
+      
+      if (!success) {
+        callback({ success: false, error: 'Cannot update room settings' });
+        return;
+      }
+
+      const updatedRoom = roomManager.getRoom(payload.roomId);
+      if (updatedRoom) {
+        io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(updatedRoom));
         // Notify public room list watchers
         io.emit('room:list-updated');
       }
 
       callback({ success: true });
-      console.log(`🔒 Room ${payload.roomId} ${payload.locked ? 'locked' : 'unlocked'}`);
+      console.log(`🔒 Room ${payload.roomId} ${payload.locked ? 'locked with password' : 'unlocked'}`);
     } catch (error) {
       console.error('Error locking room:', error);
       callback({ success: false, error: 'Failed to lock/unlock room' });

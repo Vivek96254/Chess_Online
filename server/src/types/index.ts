@@ -63,7 +63,8 @@ export interface RoomSettings {
   allowJoin: boolean; // Allow players to join as opponent
   isPrivate: boolean;
   roomName?: string; // Optional room name
-  isLocked: boolean; // Host can lock room to prevent new joins
+  isLocked: boolean; // Room requires password to join
+  password?: string; // Room password (only set if isLocked is true)
 }
 
 // Time control
@@ -112,11 +113,13 @@ export interface CreateRoomPayload {
 export interface JoinRoomPayload {
   roomId: string;
   playerName: string;
+  password?: string; // Required if room is locked
 }
 
 export interface SpectateRoomPayload {
   roomId: string;
   spectatorName?: string;
+  password?: string; // Required if room is locked
 }
 
 export interface MakeMovePayload {
@@ -225,18 +228,21 @@ export const CreateRoomSchema = z.object({
     allowJoin: z.boolean().optional(),
     isPrivate: z.boolean().optional(),
     roomName: z.string().min(1).max(50).trim().optional(),
-    isLocked: z.boolean().optional()
+    isLocked: z.boolean().optional(),
+    password: z.string().min(1).max(50).optional() // Required if isLocked is true
   }).optional()
 });
 
 export const JoinRoomSchema = z.object({
   roomId: z.string().min(1).max(50),
-  playerName: z.string().min(1).max(20).trim()
+  playerName: z.string().min(1).max(20).trim(),
+  password: z.string().max(50).optional() // Room password for locked rooms
 });
 
 export const SpectateRoomSchema = z.object({
   roomId: z.string().min(1).max(50),
-  spectatorName: z.string().min(1).max(20).trim().optional()
+  spectatorName: z.string().min(1).max(20).trim().optional(),
+  password: z.string().max(50).optional() // Room password for locked rooms
 });
 
 export const MakeMoveSchema = z.object({

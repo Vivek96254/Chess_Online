@@ -55,10 +55,10 @@ interface GameStore {
   disconnect: () => void;
   createRoom: (settings?: Partial<RoomSettings>) => Promise<boolean>;
   kickSpectator: (spectatorId: string) => Promise<void>;
-  lockRoom: (locked: boolean) => Promise<void>;
+  lockRoom: (locked: boolean, password?: string) => Promise<void>;
   updateRoomSettings: (settings: Partial<RoomSettings>) => Promise<void>;
-  joinRoom: (roomId: string) => Promise<boolean>;
-  spectateRoom: (roomId: string) => Promise<boolean>;
+  joinRoom: (roomId: string, password?: string) => Promise<boolean>;
+  spectateRoom: (roomId: string, password?: string) => Promise<boolean>;
   leaveRoom: () => Promise<void>;
   makeMove: (from: string, to: string, promotion?: string) => Promise<boolean>;
   selectSquare: (square: string | null) => void;
@@ -315,14 +315,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
-  joinRoom: async (roomId: string) => {
+  joinRoom: async (roomId: string, password?: string) => {
     const { playerName } = get();
     if (!playerName) {
       set({ notification: { type: 'error', message: 'Please enter your name' } });
       return false;
     }
 
-    const response = await socketService.joinRoom(roomId, playerName);
+    const response = await socketService.joinRoom(roomId, playerName, password);
     
     if (response.success && response.room) {
       const chess = response.room.gameState ? new Chess(response.room.gameState.fen) : null;
@@ -342,9 +342,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
-  spectateRoom: async (roomId: string) => {
+  spectateRoom: async (roomId: string, password?: string) => {
     const { playerName } = get();
-    const response = await socketService.spectateRoom(roomId, playerName || undefined);
+    const response = await socketService.spectateRoom(roomId, playerName || undefined, password);
     
     if (response.success && response.room) {
       const chess = response.room.gameState ? new Chess(response.room.gameState.fen) : null;
@@ -545,13 +545,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
-  lockRoom: async (locked: boolean) => {
+  lockRoom: async (locked: boolean, password?: string) => {
     const { room } = get();
     if (!room) return;
     
-    const response = await socketService.lockRoom(room.roomId, locked);
+    const response = await socketService.lockRoom(room.roomId, locked, password);
     if (!response.success) {
       set({ notification: { type: 'error', message: response.error || 'Failed to lock/unlock room' } });
+    } else {
+      set({ notification: { type: 'success', message: locked ? 'Room locked with password' : 'Room unlocked' } });
     }
   },
 

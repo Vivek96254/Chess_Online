@@ -15,10 +15,30 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
   const { resign, offerDraw, gameState, latency, playerId, kickSpectator, lockRoom } = useGameStore();
   const [showResignConfirm, setShowResignConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [showLockDialog, setShowLockDialog] = useState(false);
+  const [lockPassword, setLockPassword] = useState('');
 
   const isPlaying = room.state === 'in_progress' && !isSpectator;
   const isFinished = room.state === 'finished';
   const isHost = playerId === room.hostId && !isSpectator;
+
+  const handleLockRoom = () => {
+    if (room.settings.isLocked) {
+      // Unlocking - no password needed
+      lockRoom(false);
+    } else {
+      // Show dialog to set password
+      setShowLockDialog(true);
+    }
+  };
+
+  const confirmLockRoom = () => {
+    if (lockPassword.trim()) {
+      lockRoom(true, lockPassword);
+      setShowLockDialog(false);
+      setLockPassword('');
+    }
+  };
 
   const handleCopyCode = () => {
     onCopyCode();
@@ -223,40 +243,89 @@ export default function GameInfo({ room, playerColor, isSpectator, onLeave, onCo
         </div>
       )}
 
+      {/* Lock Room Dialog */}
+      {showLockDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="card p-6 w-full max-w-sm mx-4">
+            <h3 className="font-display text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Set Room Password
+            </h3>
+            <p className="text-sm text-midnight-300 mb-4">
+              Players and spectators will need this password to join your room.
+            </p>
+            <input
+              type="password"
+              value={lockPassword}
+              onChange={(e) => setLockPassword(e.target.value)}
+              placeholder="Enter a password"
+              className="input mb-4"
+              maxLength={50}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setShowLockDialog(false);
+                  setLockPassword('');
+                }}
+                className="btn btn-secondary flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmLockRoom}
+                disabled={!lockPassword.trim()}
+                className="btn btn-primary flex-1"
+              >
+                Lock Room
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Host Controls */}
       {isHost && !isFinished && (
         <div className="card p-4 mb-4 border-accent/30">
           <h3 className="text-sm font-medium text-midnight-400 mb-3">Host Controls</h3>
           
           <div className="space-y-2">
-            {/* Lock Room Toggle */}
-            <label className="flex items-center gap-3 cursor-pointer p-2 rounded bg-midnight-900 hover:bg-midnight-800 transition-colors">
-              <input
-                type="checkbox"
-                checked={room.settings.isLocked}
-                onChange={(e) => lockRoom(e.target.checked)}
-                className="w-5 h-5 rounded bg-midnight-700 border-midnight-600 text-accent focus:ring-accent"
-              />
-              <div className="flex items-center gap-2">
-                {room.settings.isLocked ? (
-                  <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                  </svg>
-                )}
-                <span className="text-sm text-midnight-300">
-                  {room.settings.isLocked ? 'Room Locked' : 'Lock Room'}
+            {/* Lock Room Button */}
+            <button
+              onClick={handleLockRoom}
+              className={clsx(
+                'w-full flex items-center gap-3 p-3 rounded transition-colors',
+                room.settings.isLocked 
+                  ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30' 
+                  : 'bg-midnight-900 hover:bg-midnight-800'
+              )}
+            >
+              {room.settings.isLocked ? (
+                <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-midnight-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                </svg>
+              )}
+              <div className="text-left">
+                <span className={clsx(
+                  'text-sm font-medium',
+                  room.settings.isLocked ? 'text-purple-300' : 'text-midnight-300'
+                )}>
+                  {room.settings.isLocked ? 'Room Locked (Password Protected)' : 'Lock Room with Password'}
                 </span>
+                <p className="text-xs text-midnight-500">
+                  {room.settings.isLocked 
+                    ? 'Click to unlock and allow new joins' 
+                    : 'Require password for players and spectators'}
+                </p>
               </div>
-            </label>
-            <p className="text-xs text-midnight-500 px-2">
-              {room.settings.isLocked 
-                ? 'No new players or spectators can join' 
-                : 'Click to prevent new joins'}
-            </p>
+            </button>
 
             {/* Spectator Management (Only spectators can be kicked, not players) */}
             {room.spectators.length > 0 && (

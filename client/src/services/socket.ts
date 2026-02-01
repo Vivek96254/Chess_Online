@@ -292,15 +292,18 @@ class SocketService {
 
   /**
    * Join a room as opponent
+   * @param roomId - Room ID to join
+   * @param playerName - Player display name
+   * @param password - Room password (required if room is locked)
    */
-  joinRoom(roomId: string, playerName: string): Promise<RoomResponse> {
+  joinRoom(roomId: string, playerName: string, password?: string): Promise<RoomResponse> {
     return new Promise((resolve) => {
       if (!this.socket) {
         resolve({ success: false, error: 'Not connected' });
         return;
       }
 
-      this.socket.emit('room:join', { roomId, playerName }, (response: RoomResponse) => {
+      this.socket.emit('room:join', { roomId, playerName, password }, (response: RoomResponse) => {
         resolve(response);
       });
     });
@@ -308,15 +311,18 @@ class SocketService {
 
   /**
    * Spectate a room
+   * @param roomId - Room ID to spectate
+   * @param spectatorName - Spectator display name
+   * @param password - Room password (required if room is locked)
    */
-  spectateRoom(roomId: string, spectatorName?: string): Promise<RoomResponse> {
+  spectateRoom(roomId: string, spectatorName?: string, password?: string): Promise<RoomResponse> {
     return new Promise((resolve) => {
       if (!this.socket) {
         resolve({ success: false, error: 'Not connected' });
         return;
       }
 
-      this.socket.emit('room:spectate', { roomId, spectatorName }, (response: RoomResponse) => {
+      this.socket.emit('room:spectate', { roomId, spectatorName, password }, (response: RoomResponse) => {
         resolve(response);
       });
     });
@@ -455,16 +461,19 @@ class SocketService {
   }
 
   /**
-   * Lock/unlock room (host only)
+   * Lock/unlock room with password (host only)
+   * @param roomId - Room ID
+   * @param locked - Whether to lock the room
+   * @param password - Password for the room (required when locking)
    */
-  lockRoom(roomId: string, locked: boolean): Promise<BaseResponse> {
+  lockRoom(roomId: string, locked: boolean, password?: string): Promise<BaseResponse> {
     return new Promise((resolve) => {
       if (!this.socket) {
         resolve({ success: false, error: 'Not connected' });
         return;
       }
 
-      this.socket.emit('room:lock', { roomId, locked }, (response: BaseResponse) => {
+      this.socket.emit('room:lock', { roomId, locked, password }, (response: BaseResponse) => {
         resolve(response);
       });
     });

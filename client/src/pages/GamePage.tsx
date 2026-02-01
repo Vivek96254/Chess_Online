@@ -37,6 +37,21 @@ export default function GamePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showJoinModeModal, setShowJoinModeModal] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [roomPassword, setRoomPassword] = useState('');
+  const [needsPassword, setNeedsPassword] = useState(false);
+
+  // Handle being kicked from room - redirect to home
+  useEffect(() => {
+    // If we were in a room (had showJoinModeModal=false) but now room is null and not loading
+    // This means we were kicked or the room was closed
+    if (!room && !isLoading && !showJoinModeModal && !sessionRestoring) {
+      // Only navigate if we were actually in a game (not just arriving at the page)
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.includes('kicked')) {
+        navigate('/');
+      }
+    }
+  }, [room, isLoading, showJoinModeModal, sessionRestoring, navigate]);
 
   useEffect(() => {
     const initRoom = async () => {
@@ -153,39 +168,41 @@ export default function GamePage() {
     }
     
     setIsJoining(true);
-    const success = await joinRoom(roomId!);
+    const success = await joinRoom(roomId!, needsPassword ? roomPassword : undefined);
     setIsJoining(false);
     
     if (success) {
       setShowJoinModeModal(false);
       setIsLoading(false);
+      setRoomPassword('');
+      setNeedsPassword(false);
     } else {
-      // If join failed, show error but keep modal open
-      useGameStore.setState({ 
-        notification: { 
-          type: 'error', 
-          message: 'Failed to join room. The room may not exist or may be full.' 
-        } 
-      });
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
   const handleJoinAsSpectator = async () => {
     setIsJoining(true);
-    const success = await spectateRoom(roomId!);
+    const success = await spectateRoom(roomId!, needsPassword ? roomPassword : undefined);
     setIsJoining(false);
     
     if (success) {
       setShowJoinModeModal(false);
       setIsLoading(false);
+      setRoomPassword('');
+      setNeedsPassword(false);
     } else {
-      // If spectate failed, show error but keep modal open
-      useGameStore.setState({ 
-        notification: { 
-          type: 'error', 
-          message: 'Failed to spectate room. The room may not exist.' 
-        } 
-      });
+      // Check if the error indicates password is required
+      const notification = useGameStore.getState().notification;
+      if (notification?.message?.toLowerCase().includes('password') || 
+          notification?.message?.toLowerCase().includes('locked')) {
+        setNeedsPassword(true);
+      }
     }
   };
 
@@ -234,6 +251,25 @@ export default function GamePage() {
                 className="input"
                 maxLength={20}
                 autoFocus
+              />
+            </div>
+          )}
+
+          {needsPassword && (
+            <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                <span className="text-sm font-medium text-purple-400">This room is password protected</span>
+              </div>
+              <input
+                type="password"
+                value={roomPassword}
+                onChange={(e) => setRoomPassword(e.target.value)}
+                placeholder="Enter room password"
+                className="input border-purple-500/30 focus:border-purple-500"
+                maxLength={50}
               />
             </div>
           )}
