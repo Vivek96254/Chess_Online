@@ -55,16 +55,17 @@ export function registerSocketHandlers(
   
   console.log(`🔌 Client connected: ${socket.id}${isAuthenticated ? ` (user: ${odId})` : ' (anonymous)'}`);
 
-  // Handle session restoration for authenticated users
+  // Handle session restoration for authenticated users and guests
   socket.on('session:restore', async (callback: (response: SessionRestoreResponse) => void) => {
     try {
       const { odId } = getPlayerId(socket);
+      const isGuest = socket.data?.isGuest || false;
       
-      console.log(`📋 Session restore requested - socket: ${socket.id}, userId: ${odId || 'none'}`);
+      console.log(`📋 Session restore requested - socket: ${socket.id}, userId: ${odId || 'none'}, isGuest: ${isGuest}`);
       
       if (!odId) {
-        console.log('❌ Session restore failed: Not authenticated');
-        callback({ success: false, error: 'Not authenticated' });
+        console.log('❌ Session restore failed: No persistent identity');
+        callback({ success: false, error: 'No persistent identity' });
         return;
       }
 
@@ -80,7 +81,7 @@ export function registerSocketHandlers(
       const result = await roomManager.restoreSession(odId, socket.id);
       
       if (!result) {
-        console.log(`❌ Session restore failed: No active session found for user ${odId}`);
+        console.log(`❌ Session restore failed: No active session found for ${isGuest ? 'guest' : 'user'} ${odId}`);
         callback({ success: false, error: 'No active session found' });
         return;
       }
@@ -107,7 +108,7 @@ export function registerSocketHandlers(
         room: serializedRoom
       });
 
-      console.log(`✅ Session restored for ${odId} in room ${room.roomId} as ${session.role}`);
+      console.log(`✅ Session restored for ${isGuest ? 'guest' : 'user'} ${odId} in room ${room.roomId} as ${session.role}`);
     } catch (error) {
       console.error('Error restoring session:', error);
       callback({ success: false, error: 'Failed to restore session' });

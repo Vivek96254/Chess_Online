@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useGameStore } from './store/gameStore';
 import { useAuthStore, setupAutoRefresh, clearAutoRefresh } from './store/authStore';
@@ -10,12 +10,30 @@ import AuthPage from './pages/AuthPage';
 import Notification from './components/Notification';
 
 function App() {
-  const { connect, connectionStatus, notification, clearNotification, setPlayerName } = useGameStore();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { connect, connectionStatus, notification, clearNotification, setPlayerName, restoredRoomId, clearRestoredRoomId } = useGameStore();
   const { isAuthenticated, user, verifySession } = useAuthStore();
 
   useEffect(() => {
     connect();
   }, [connect]);
+
+  // Handle automatic redirect after session restoration
+  useEffect(() => {
+    if (restoredRoomId) {
+      const gameUrl = `/game/${restoredRoomId}`;
+      
+      // Only redirect if not already on the game page
+      if (!location.pathname.includes(restoredRoomId)) {
+        console.log(`🔄 Redirecting to restored game: ${gameUrl}`);
+        navigate(gameUrl);
+      }
+      
+      // Clear the restored room ID after redirect
+      clearRestoredRoomId();
+    }
+  }, [restoredRoomId, location.pathname, navigate, clearRestoredRoomId]);
 
   // Verify auth session on startup
   useEffect(() => {

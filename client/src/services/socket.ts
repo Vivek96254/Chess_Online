@@ -61,6 +61,26 @@ function getAuthToken(): string | null {
   return null;
 }
 
+// Guest ID management for persistent guest identity
+const GUEST_ID_KEY = 'chess-guest-id';
+
+function getOrCreateGuestId(): string {
+  let guestId = localStorage.getItem(GUEST_ID_KEY);
+  if (!guestId) {
+    // Generate a UUID-like guest ID
+    guestId = 'guest_' + crypto.randomUUID();
+    localStorage.setItem(GUEST_ID_KEY, guestId);
+    console.log('🆔 Created new guest ID:', guestId);
+  } else {
+    console.log('🆔 Using existing guest ID:', guestId);
+  }
+  return guestId;
+}
+
+function getGuestId(): string | null {
+  return localStorage.getItem(GUEST_ID_KEY);
+}
+
 class SocketService {
   private socket: Socket | null = null;
   private callbacks: SocketCallbacks = {};
@@ -69,7 +89,7 @@ class SocketService {
   private isAuthenticated = false;
 
   /**
-   * Connect to the server with optional JWT authentication
+   * Connect to the server with JWT authentication or guest ID
    */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -82,6 +102,9 @@ class SocketService {
       const token = getAuthToken();
       this.isAuthenticated = !!token;
 
+      // For non-authenticated users, use a persistent guest ID
+      const guestId = !token ? getOrCreateGuestId() : undefined;
+
       this.socket = io(SERVER_URL, {
         transports: ['websocket', 'polling'],
         reconnection: true,
@@ -89,8 +112,8 @@ class SocketService {
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
-        // Send auth token if available
-        auth: token ? { token } : undefined
+        // Send auth token or guest ID
+        auth: token ? { token } : { guestId }
       });
 
       this.socket.on('connect', () => {
@@ -118,10 +141,18 @@ class SocketService {
   }
 
   /**
-   * Check if socket is authenticated
+   * Check if socket is authenticated (JWT user)
    */
   isAuthenticatedConnection(): boolean {
     return this.isAuthenticated;
+  }
+
+  /**
+   * Check if socket has any persistent identity (JWT or guestId)
+   * This is used to determine if session restoration should be attempted
+   */
+  hasPersistentIdentity(): boolean {
+    return this.isAuthenticated || !!getGuestId();
   }
 
   /**
@@ -469,7 +500,7 @@ class SocketService {
   }
 
   /**
-   * Restore session for authenticated users
+   * Restore session for users with persistent identity (JWT or guestId)
    * This should be called after connecting to check if the user has an active game session
    */
   restoreSession(): Promise<SessionRestoreResponse> {
@@ -479,8 +510,9 @@ class SocketService {
         return;
       }
 
-      if (!this.isAuthenticated) {
-        resolve({ success: false, error: 'Not authenticated' });
+      // Session restore works for both authenticated users and guests with persistent IDs
+      if (!this.hasPersistentIdentity()) {
+        resolve({ success: false, error: 'No persistent identity' });
         return;
       }
 

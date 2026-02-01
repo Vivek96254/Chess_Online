@@ -28,6 +28,7 @@ interface GameStore {
   // Session restoration state
   sessionRestoring: boolean;
   sessionRestored: boolean;
+  restoredRoomId: string | null; // Set when session is restored, used for redirect
 
   // Game state
   gameState: GameState | null;
@@ -70,6 +71,7 @@ interface GameStore {
   setPromotionPending: (data: { from: string; to: string } | null) => void;
   getBoardState: () => BoardState;
   restoreSession: () => Promise<{ roomId: string; role: PlayerRole; color: PlayerColor | null } | null>;
+  clearRestoredRoomId: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -86,6 +88,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   // Session restoration state
   sessionRestoring: false,
   sessionRestored: false,
+  restoredRoomId: null,
 
   gameState: null,
   chess: null,
@@ -242,12 +245,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       set({ connectionStatus: 'connected', playerId: socketService.getSocketId() });
 
-      // Automatically try to restore session for authenticated users AFTER connection is established
-      if (socketService.isAuthenticatedConnection()) {
-        console.log('🔄 Attempting session restoration for authenticated user...');
+      // Automatically try to restore session for users with persistent identity (JWT or guestId)
+      if (socketService.hasPersistentIdentity()) {
+        console.log('🔄 Attempting session restoration...');
         await get().restoreSession();
       } else {
-        console.log('ℹ️ Anonymous user - no session to restore');
+        console.log('ℹ️ No persistent identity - no session to restore');
         set({ sessionRestored: true });
       }
 
@@ -541,8 +544,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   restoreSession: async () => {
-    // Only try to restore if authenticated
-    if (!socketService.isAuthenticatedConnection()) {
+    // Only try to restore if we have a persistent identity (JWT or guestId)
+    if (!socketService.hasPersistentIdentity()) {
       set({ sessionRestored: true, sessionRestoring: false });
       return null;
     }
@@ -575,19 +578,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
           isFlipped: session.color === 'black',
           sessionRestored: true,
           sessionRestoring: false,
-          notification: { type: 'success', message: 'Session restored! Welcome back.' }
+          restoredRoomId: session.roomId, // Set for redirect
+          notification: { type: 'success', message: 'Session restored! Redirecting to game...' }
         });
 
         console.log(`🔄 Session restored: room ${session.roomId}, role ${session.role}, color ${session.color}`);
         return session;
       } else {
-        set({ sessionRestored: true, sessionRestoring: false });
+        set({ sessionRestored: true, sessionRestoring: false, restoredRoomId: null });
         return null;
       }
     } catch (error) {
       console.error('Failed to restore session:', error);
-      set({ sessionRestored: true, sessionRestoring: false });
+      set({ sessionRestored: true, sessionRestoring: false, restoredRoomId: null });
       return null;
     }
+  },
+
+  clearRestoredRoomId: () => {
+    set({ restoredRoomId: null });
   }
 }));

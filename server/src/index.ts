@@ -210,13 +210,30 @@ io.use((socket, next) => {
         // Attach user data to socket
         socket.data = {
           userId: decoded.userId,
-          username: decoded.username
+          username: decoded.username,
+          isGuest: false
         };
         console.log(`🔐 Authenticated socket for user: ${decoded.username}`);
+        next();
+        return;
       }
     }
     
-    // Always allow connection (auth is optional for guest play)
+    // Check for guest ID (persistent identity for non-authenticated users)
+    const guestId = socket.handshake.auth?.guestId;
+    if (guestId && typeof guestId === 'string' && guestId.startsWith('guest_')) {
+      socket.data = {
+        userId: guestId,
+        username: `Guest-${guestId.slice(-6)}`,
+        isGuest: true
+      };
+      console.log(`👤 Guest socket connected: ${guestId}`);
+      next();
+      return;
+    }
+    
+    // No persistent identity - anonymous connection
+    console.log(`ℹ️ Anonymous socket connected: ${socket.id}`);
     next();
   } catch (error) {
     // Invalid token - still allow connection as anonymous user

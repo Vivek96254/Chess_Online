@@ -273,4 +273,5 @@ export interface SessionRestoreResponse extends BaseResponse {
 export interface SocketAuthData {
   userId: string;
   username: string;
+  isGuest?: boolean; // True for guest users (using guestId), false for JWT users
 }
