@@ -619,6 +619,12 @@ export function registerSocketHandlers(
 
       const room = roomManager.getRoom(payload.roomId);
       if (room) {
+        // Emit spectator:left event so other clients update their spectator lists in real-time
+        io.to(payload.roomId).emit('spectator:left', {
+          spectatorId: payload.odId,
+          count: room.spectators.size
+        });
+        
         io.to(payload.roomId).emit('room:updated', roomManager.serializeRoom(room));
       }
 

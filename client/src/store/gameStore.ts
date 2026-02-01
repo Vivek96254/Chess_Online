@@ -48,6 +48,8 @@ interface GameStore {
   drawOffered: boolean;
   drawOfferFrom: string | null;
   notification: { type: 'success' | 'error' | 'info'; message: string } | null;
+  wasKicked: boolean;
+  kickReason: string | null;
 
   // Actions
   setPlayerName: (name: string) => void;
@@ -75,6 +77,7 @@ interface GameStore {
   getBoardState: () => BoardState;
   restoreSession: () => Promise<{ roomId: string; role: PlayerRole; color: PlayerColor | null } | null>;
   clearRestoredRoomId: () => void;
+  acknowledgeKick: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -109,6 +112,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   drawOffered: false,
   drawOfferFrom: null,
   notification: null,
+  wasKicked: false,
+  kickReason: null,
 
   // Actions
   setPlayerName: (name: string) => {
@@ -200,16 +205,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
         onSpectatorJoined: (data) => {
           const room = get().room;
           if (room) {
+            // Add new spectator to the list
+            const existingSpectator = room.spectators.find(s => s.odId === data.spectatorId);
+            const updatedSpectators = existingSpectator 
+              ? room.spectators 
+              : [...room.spectators, { odId: data.spectatorId, name: data.name }];
+            
             set({ 
-              room: { ...room, spectatorCount: data.count }
+              room: { 
+                ...room, 
+                spectatorCount: data.count,
+                spectators: updatedSpectators
+              }
             });
           }
         },
         onSpectatorLeft: (data) => {
           const room = get().room;
           if (room) {
+            // Remove spectator from the list
+            const updatedSpectators = room.spectators.filter(s => s.odId !== data.spectatorId);
+            
             set({ 
-              room: { ...room, spectatorCount: data.count }
+              room: { 
+                ...room, 
+                spectatorCount: data.count,
+                spectators: updatedSpectators
+              }
             });
           }
         },
@@ -243,7 +265,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
             room: null,
             gameState: null,
             chess: null,
-            notification: { type: 'error', message: data.reason }
+            wasKicked: true,
+            kickReason: data.reason || 'You have been kicked from the room'
           });
         },
         onRoomListUpdated: () => {
@@ -379,7 +402,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       privateChatMessages: [],
       activeChatTab: 'public',
       drawOffered: false,
-      drawOfferFrom: null
+      drawOfferFrom: null,
+      wasKicked: false,
+      kickReason: null
     });
   },
 
@@ -503,6 +528,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearNotification: () => {
     set({ notification: null });
+  },
+
+  acknowledgeKick: () => {
+    set({ wasKicked: false, kickReason: null });
   },
 
   setPromotionPending: (data) => {

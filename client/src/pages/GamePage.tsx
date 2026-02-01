@@ -30,7 +30,10 @@ export default function GamePage() {
     playerId,
     connectionStatus,
     sessionRestoring,
-    sessionRestored
+    sessionRestored,
+    wasKicked,
+    kickReason,
+    acknowledgeKick
   } = useGameStore();
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -40,18 +43,11 @@ export default function GamePage() {
   const [roomPassword, setRoomPassword] = useState('');
   const [needsPassword, setNeedsPassword] = useState(false);
 
-  // Handle being kicked from room - redirect to home
-  useEffect(() => {
-    // If we were in a room (had showJoinModeModal=false) but now room is null and not loading
-    // This means we were kicked or the room was closed
-    if (!room && !isLoading && !showJoinModeModal && !sessionRestoring) {
-      // Only navigate if we were actually in a game (not just arriving at the page)
-      const notification = useGameStore.getState().notification;
-      if (notification?.message?.includes('kicked')) {
-        navigate('/');
-      }
-    }
-  }, [room, isLoading, showJoinModeModal, sessionRestoring, navigate]);
+  // Handle kick acknowledgment - navigate home after user acknowledges
+  const handleAcknowledgeKick = () => {
+    acknowledgeKick();
+    navigate('/');
+  };
 
   useEffect(() => {
     const initRoom = async () => {
@@ -467,6 +463,35 @@ export default function GamePage() {
       {/* Draw Offer Modal */}
       {drawOffered && drawOfferFrom !== playerId && (
         <DrawOfferModal isSpectator={isSpectator} />
+      )}
+
+      {/* Kicked Modal */}
+      {wasKicked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card p-6 w-full max-w-sm text-center border-red-500/30"
+          >
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+              <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            </div>
+            <h3 className="font-display text-xl font-bold text-white mb-2">
+              You've Been Kicked
+            </h3>
+            <p className="text-midnight-300 mb-6">
+              {kickReason || 'You have been removed from the room by the host.'}
+            </p>
+            <button
+              onClick={handleAcknowledgeKick}
+              className="btn btn-primary w-full"
+            >
+              Return to Home
+            </button>
+          </motion.div>
+        </div>
       )}
 
     </div>
