@@ -28,7 +28,9 @@ export default function GamePage() {
     drawOffered,
     drawOfferFrom,
     playerId,
-    connectionStatus
+    connectionStatus,
+    sessionRestoring,
+    sessionRestored
   } = useGameStore();
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -63,16 +65,46 @@ export default function GamePage() {
         }
       }
 
+      // Wait for session restoration to complete before showing join modal
+      // This prevents showing the join modal when the user is being reconnected to their game
+      if (!sessionRestored) {
+        let sessionAttempts = 0;
+        while (sessionAttempts < 25) { // Wait up to 5 seconds for session restore
+          await new Promise(resolve => setTimeout(resolve, 200));
+          sessionAttempts++;
+          const state = useGameStore.getState();
+          
+          // Session restored - check if we're now in the right room
+          if (state.sessionRestored) {
+            if (state.room?.roomId === roomId) {
+              // Session was restored and we're in the right room!
+              setIsLoading(false);
+              setShowJoinModeModal(false);
+              return;
+            }
+            break; // Session restored but not in this room
+          }
+        }
+      }
+
+      // Re-check room state after session restoration
+      const currentRoom = useGameStore.getState().room;
+      if (currentRoom?.roomId === roomId) {
+        setIsLoading(false);
+        setShowJoinModeModal(false);
+        return;
+      }
+
       // If not already in a room, show join mode selection modal
       // This handles direct link navigation
-      if (!room) {
+      if (!currentRoom) {
         setIsLoading(false);
         setShowJoinModeModal(true);
         return;
       }
 
       // If in a different room, show modal to join new room
-      if (room.roomId !== roomId) {
+      if (currentRoom.roomId !== roomId) {
         setIsLoading(false);
         setShowJoinModeModal(true);
         return;
@@ -82,7 +114,7 @@ export default function GamePage() {
     };
 
     initRoom();
-  }, [roomId, room?.roomId, connectionStatus]);
+  }, [roomId, room?.roomId, connectionStatus, sessionRestored]);
 
   const handleLeave = async () => {
     await leaveRoom();
@@ -157,12 +189,14 @@ export default function GamePage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || sessionRestoring) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="spinner mx-auto mb-4"></div>
-          <p className="text-midnight-300">Loading game...</p>
+          <p className="text-midnight-300">
+            {sessionRestoring ? 'Restoring your session...' : 'Loading game...'}
+          </p>
         </div>
       </div>
     );

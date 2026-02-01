@@ -188,6 +188,8 @@ export interface ClientToServerEvents {
   
   'chat:send': (payload: ChatMessagePayload, callback: (response: BaseResponse) => void) => void;
   
+  'session:restore': (callback: (response: SessionRestoreResponse) => void) => void;
+  
   'ping': (callback: (response: { timestamp: number }) => void) => void;
 }
 
@@ -245,3 +247,30 @@ export const ChatMessageSchema = z.object({
   roomId: z.string().min(1).max(50),
   message: z.string().min(1).max(500).trim()
 });
+
+// Session management types
+export interface UserSession {
+  odId: string;  // Authenticated user ID (from JWT)
+  odName: string;
+  roomId: string;
+  role: PlayerRole;
+  socketId: string;
+  color: PlayerColor | null;
+  isConnected: boolean;
+  disconnectedAt: number | null;
+}
+
+export interface SessionRestoreResponse extends BaseResponse {
+  session?: {
+    roomId: string;
+    role: PlayerRole;
+    color: PlayerColor | null;
+  };
+  room?: SerializableRoom;
+}
+
+// Socket auth data (attached to socket after authentication)
+export interface SocketAuthData {
+  userId: string;
+  username: string;
+}

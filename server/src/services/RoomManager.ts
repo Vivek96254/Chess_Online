@@ -9,23 +9,147 @@ import type {
   MoveRecord,
   PlayerColor,
   RoomListing,
-  RoomState
+  RoomState,
+  UserSession,
+  PlayerRole
 } from '../types/index.js';
 
 /**
  * RoomManager - Handles room lifecycle and game operations
+ * 
+ * Session tracking strategy:
+ * - userSessions: Maps authenticated userId to session data (for reconnect support)
+ * - playerRooms: Maps socketId/odId to roomId (for backward compatibility)
+ * - socketToUser: Maps socketId to userId (for looking up user from socket)
  */
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
-  private playerRooms: Map<string, string> = new Map(); // odId -> roomId
+  private playerRooms: Map<string, string> = new Map(); // socketId -> roomId
   private disconnectedPlayers: Map<string, NodeJS.Timeout> = new Map();
   private redis: RedisService | null = null;
   private readonly RECONNECT_GRACE_PERIOD = 60000; // 60 seconds
   private readonly ROOM_CLEANUP_INTERVAL = 60000; // 1 minute
 
+  // Session management for authenticated users
+  private userSessions: Map<string, UserSession> = new Map(); // odId -> session
+  private socketToUser: Map<string, string> = new Map(); // socketId -> odId
+
   constructor(redis?: RedisService) {
     this.redis = redis || null;
     this.startCleanupInterval();
+  }
+
+  /**
+   * Register a user session (for authenticated users)
+   */
+  registerUserSession(
+    odId: string,
+    odName: string,
+    roomId: string,
+    role: PlayerRole,
+    socketId: string,
+    color: PlayerColor | null
+  ): void {
+    const session: UserSession = {
+      odId,
+      odName,
+      roomId,
+      role,
+      socketId,
+      color,
+      isConnected: true,
+      disconnectedAt: null
+    };
+    this.userSessions.set(odId, session);
+    this.socketToUser.set(socketId, odId);
+  }
+
+  /**
+   * Get user session by user ID
+   */
+  getUserSession(odId: string): UserSession | null {
+    return this.userSessions.get(odId) || null;
+  }
+
+  /**
+   * Get user ID from socket ID
+   */
+  getUserIdFromSocket(socketId: string): string | null {
+    return this.socketToUser.get(socketId) || null;
+  }
+
+  /**
+   * Update socket ID for a user (on reconnect)
+   */
+  updateUserSocket(odId: string, newSocketId: string): boolean {
+    const session = this.userSessions.get(odId);
+    if (!session) return false;
+
+    // Clean up old socket mapping
+    this.socketToUser.delete(session.socketId);
+    
+    // Update session
+    session.socketId = newSocketId;
+    session.isConnected = true;
+    session.disconnectedAt = null;
+    
+    // Register new socket mapping
+    this.socketToUser.set(newSocketId, odId);
+
+    // Update playerRooms mapping
+    const oldRoomId = this.playerRooms.get(session.socketId);
+    if (oldRoomId) {
+      this.playerRooms.delete(session.socketId);
+    }
+    this.playerRooms.set(newSocketId, session.roomId);
+
+    // Update room's player socket ID
+    const room = this.rooms.get(session.roomId);
+    if (room) {
+      if (session.role === 'host' && room.hostId === session.odId) {
+        // hostId stays as odId for auth users
+      } else if (session.role === 'opponent' && room.opponentId === session.odId) {
+        // opponentId stays as odId for auth users
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Remove user session
+   */
+  removeUserSession(odId: string): void {
+    const session = this.userSessions.get(odId);
+    if (session) {
+      this.socketToUser.delete(session.socketId);
+      this.userSessions.delete(odId);
+    }
+  }
+
+  /**
+   * Mark user as disconnected (start grace period)
+   */
+  markUserDisconnected(odId: string): void {
+    const session = this.userSessions.get(odId);
+    if (session) {
+      session.isConnected = false;
+      session.disconnectedAt = Date.now();
+    }
+  }
+
+  /**
+   * Check if user has an active session in a room
+   */
+  hasActiveSession(odId: string): boolean {
+    const session = this.userSessions.get(odId);
+    if (!session) return false;
+    
+    const room = this.rooms.get(session.roomId);
+    if (!room) return false;
+    
+    // Session is active if room exists and is not finished
+    return room.state !== 'finished';
   }
 
   /**
@@ -71,11 +195,16 @@ export class RoomManager {
 
   /**
    * Create a new room
+   * @param hostId - Socket ID or User ID for authenticated users
+   * @param hostName - Display name of the host
+   * @param settings - Room settings
+   * @param odId - Authenticated user ID (optional, for session tracking)
    */
   async createRoom(
     hostId: string,
     hostName: string,
-    settings: Partial<RoomSettings> = {}
+    settings: Partial<RoomSettings> = {},
+    odId?: string
   ): Promise<Room> {
     const roomId = this.generateRoomId();
     
@@ -88,9 +217,12 @@ export class RoomManager {
       ...settings
     };
 
+    // Use userId as hostId for authenticated users (persistent identity)
+    const persistentHostId = odId || hostId;
+
     const room: Room = {
       roomId,
-      hostId,
+      hostId: persistentHostId,
       hostName,
       opponentId: null,
       opponentName: null,
@@ -103,11 +235,16 @@ export class RoomManager {
     };
 
     this.rooms.set(roomId, room);
-    this.playerRooms.set(hostId, roomId);
+    this.playerRooms.set(hostId, roomId); // Map socket to room
+
+    // Register user session for authenticated users
+    if (odId) {
+      this.registerUserSession(odId, hostName, roomId, 'host', hostId, 'white');
+    }
 
     if (this.redis) {
       await this.redis.setRoom(this.serializeRoom(room));
-      await this.redis.setPlayerRoom(hostId, roomId);
+      await this.redis.setPlayerRoom(persistentHostId, roomId);
     }
 
     return room;
@@ -115,22 +252,31 @@ export class RoomManager {
 
   /**
    * Join a room as opponent
+   * @param roomId - Room to join
+   * @param playerId - Socket ID
+   * @param playerName - Display name
+   * @param odId - Authenticated user ID (optional, for session tracking)
    */
   async joinRoom(
     roomId: string,
     playerId: string,
-    playerName: string
+    playerName: string,
+    odId?: string
   ): Promise<{ room: Room; color: PlayerColor } | null> {
     const room = this.rooms.get(roomId);
     
     if (!room) return null;
     if (room.state !== 'waiting_for_player') return null;
     if (room.opponentId !== null) return null;
-    if (room.hostId === playerId) return null;
+    
+    // Use persistent ID for comparison
+    const persistentPlayerId = odId || playerId;
+    if (room.hostId === persistentPlayerId) return null;
     if (!room.settings.allowJoin) return null; // Check if joining is allowed
     if (room.settings.isLocked) return null; // Check if room is locked
 
-    room.opponentId = playerId;
+    // Use userId as opponentId for authenticated users (persistent identity)
+    room.opponentId = persistentPlayerId;
     room.opponentName = playerName;
     room.state = 'in_progress';
     room.lastActivity = Date.now();
@@ -138,11 +284,16 @@ export class RoomManager {
     // Create game state
     room.gameState = ChessEngine.createInitialGameState(room.settings.timeControl);
 
-    this.playerRooms.set(playerId, roomId);
+    this.playerRooms.set(playerId, roomId); // Map socket to room
+
+    // Register user session for authenticated users
+    if (odId) {
+      this.registerUserSession(odId, playerName, roomId, 'opponent', playerId, 'black');
+    }
 
     if (this.redis) {
       await this.redis.setRoom(this.serializeRoom(room));
-      await this.redis.setPlayerRoom(playerId, roomId);
+      await this.redis.setPlayerRoom(persistentPlayerId, roomId);
       if (room.gameState) {
         await this.redis.setGameState(roomId, room.gameState);
       }
@@ -154,19 +305,31 @@ export class RoomManager {
 
   /**
    * Join as spectator
+   * @param roomId - Room to spectate
+   * @param spectatorId - Socket ID
+   * @param spectatorName - Display name
+   * @param odId - Authenticated user ID (optional, for session tracking)
    */
   async spectateRoom(
     roomId: string,
     spectatorId: string,
-    spectatorName: string = 'Spectator'
+    spectatorName: string = 'Spectator',
+    odId?: string
   ): Promise<Room | null> {
     const room = this.rooms.get(roomId);
     
     if (!room) return null;
     if (!room.settings.allowSpectators) return null;
 
-    room.spectators.set(spectatorId, spectatorName);
+    // Use persistent ID for spectator map
+    const persistentId = odId || spectatorId;
+    room.spectators.set(persistentId, spectatorName);
     room.lastActivity = Date.now();
+
+    // Register user session for authenticated spectators
+    if (odId) {
+      this.registerUserSession(odId, spectatorName, roomId, 'spectator', spectatorId, null);
+    }
 
     if (this.redis) {
       await this.redis.setRoom(this.serializeRoom(room));
@@ -176,33 +339,93 @@ export class RoomManager {
   }
 
   /**
-   * Leave a room
+   * Restore session for a reconnecting user
+   * Returns the room and session info if the user has an active session
    */
-  async leaveRoom(playerId: string): Promise<{
+  async restoreSession(
+    odId: string,
+    newSocketId: string
+  ): Promise<{ room: Room; session: UserSession } | null> {
+    const session = this.userSessions.get(odId);
+    
+    if (!session) return null;
+
+    const room = this.rooms.get(session.roomId);
+    if (!room) {
+      // Room no longer exists, clean up session
+      this.removeUserSession(odId);
+      return null;
+    }
+
+    // Don't restore finished games (let user start fresh)
+    if (room.state === 'finished') {
+      // Clean up session for finished game
+      this.removeUserSession(odId);
+      return null;
+    }
+
+    // Clear any disconnect timeout
+    const timeout = this.disconnectedPlayers.get(odId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.disconnectedPlayers.delete(odId);
+    }
+
+    // Update socket mapping
+    this.updateUserSocket(odId, newSocketId);
+
+    console.log(`🔄 Session restored for user ${odId} in room ${session.roomId}`);
+
+    return { room, session };
+  }
+
+  /**
+   * Leave a room
+   * @param socketId - Socket ID of the leaving player
+   * @param odId - User ID (for authenticated users)
+   */
+  async leaveRoom(socketId: string, odId?: string): Promise<{
     room: Room | null;
     wasPlayer: boolean;
     shouldEndGame: boolean;
   }> {
-    const roomId = this.playerRooms.get(playerId);
-    if (!roomId) {
+    // Determine the persistent ID to use for room lookup
+    const persistentId = odId || socketId;
+    
+    const roomId = this.playerRooms.get(socketId);
+    let room: Room | null = null;
+    
+    if (roomId) {
+      room = this.rooms.get(roomId) || null;
+    }
+
+    // If not found by socket, try by userId (for authenticated users who reconnected with different socket)
+    if (!room && odId) {
+      const session = this.userSessions.get(odId);
+      if (session) {
+        room = this.rooms.get(session.roomId) || null;
+      }
+    }
+
+    if (!room) {
       // Check if spectator
-      for (const [, room] of this.rooms.entries()) {
-        if (room.spectators.has(playerId)) {
-          room.spectators.delete(playerId);
-          if (this.redis) {
-            await this.redis.setRoom(this.serializeRoom(room));
+      for (const [, r] of this.rooms.entries()) {
+        if (r.spectators.has(persistentId)) {
+          r.spectators.delete(persistentId);
+          if (odId) {
+            this.removeUserSession(odId);
           }
-          return { room, wasPlayer: false, shouldEndGame: false };
+          if (this.redis) {
+            await this.redis.setRoom(this.serializeRoom(r));
+          }
+          return { room: r, wasPlayer: false, shouldEndGame: false };
         }
       }
       return { room: null, wasPlayer: false, shouldEndGame: false };
     }
 
-    const room = this.rooms.get(roomId);
-    if (!room) return { room: null, wasPlayer: false, shouldEndGame: false };
-
-    const wasHost = room.hostId === playerId;
-    const wasOpponent = room.opponentId === playerId;
+    const wasHost = room.hostId === persistentId;
+    const wasOpponent = room.opponentId === persistentId;
     const wasPlayer = wasHost || wasOpponent;
     let shouldEndGame = false;
 
@@ -216,19 +439,23 @@ export class RoomManager {
       shouldEndGame = true;
     } else if (room.state === 'waiting_for_player' && wasHost) {
       // Delete room if host leaves before game starts
-      this.rooms.delete(roomId);
+      this.rooms.delete(room.roomId);
       if (this.redis) {
-        await this.redis.deleteRoom(roomId);
+        await this.redis.deleteRoom(room.roomId);
       }
     }
 
-    this.playerRooms.delete(playerId);
+    this.playerRooms.delete(socketId);
+    if (odId) {
+      this.removeUserSession(odId);
+    }
+
     if (this.redis) {
-      await this.redis.removePlayerRoom(playerId);
-      if (room && this.rooms.has(roomId)) {
+      await this.redis.removePlayerRoom(persistentId);
+      if (room && this.rooms.has(room.roomId)) {
         await this.redis.setRoom(this.serializeRoom(room));
         if (room.gameState) {
-          await this.redis.setGameState(roomId, room.gameState);
+          await this.redis.setGameState(room.roomId, room.gameState);
         }
       }
     }
@@ -238,13 +465,20 @@ export class RoomManager {
 
   /**
    * Make a move
+   * @param roomId - Room ID
+   * @param socketId - Socket ID of the player
+   * @param from - Source square
+   * @param to - Target square
+   * @param promotion - Promotion piece
+   * @param odId - User ID (for authenticated users)
    */
   async makeMove(
     roomId: string,
-    playerId: string,
+    socketId: string,
     from: string,
     to: string,
-    promotion?: string
+    promotion?: string,
+    odId?: string
   ): Promise<{ success: boolean; move?: MoveRecord; gameState?: GameState; error?: string }> {
     const room = this.rooms.get(roomId);
     
@@ -252,9 +486,12 @@ export class RoomManager {
     if (room.state !== 'in_progress') return { success: false, error: 'Game not in progress' };
     if (!room.gameState) return { success: false, error: 'Game state not found' };
 
+    // Use persistent ID for player validation
+    const persistentId = odId || socketId;
+
     // Validate player is in the game
-    const isHost = room.hostId === playerId;
-    const isOpponent = room.opponentId === playerId;
+    const isHost = room.hostId === persistentId;
+    const isOpponent = room.opponentId === persistentId;
     if (!isHost && !isOpponent) return { success: false, error: 'Not a player in this game' };
 
     // Validate it's the player's turn
@@ -314,16 +551,21 @@ export class RoomManager {
 
   /**
    * Player resigns
+   * @param roomId - Room ID
+   * @param socketId - Socket ID
+   * @param odId - User ID (for authenticated users)
    */
-  async resign(roomId: string, playerId: string): Promise<GameState | null> {
+  async resign(roomId: string, socketId: string, odId?: string): Promise<GameState | null> {
     const room = this.rooms.get(roomId);
     
     if (!room) return null;
     if (room.state !== 'in_progress') return null;
     if (!room.gameState) return null;
 
-    const isHost = room.hostId === playerId;
-    const isOpponent = room.opponentId === playerId;
+    const persistentId = odId || socketId;
+
+    const isHost = room.hostId === persistentId;
+    const isOpponent = room.opponentId === persistentId;
     if (!isHost && !isOpponent) return null;
 
     room.gameState.status = 'resigned';
@@ -364,55 +606,112 @@ export class RoomManager {
 
   /**
    * Handle player disconnect
+   * @param socketId - The disconnecting socket ID
    */
-  handleDisconnect(playerId: string): {
+  handleDisconnect(socketId: string): {
     roomId: string | null;
     isPlayer: boolean;
     gracePeriod: number;
+    odId: string | null;
   } {
-    const roomId = this.playerRooms.get(playerId);
+    // Check if this socket belongs to an authenticated user
+    const odId = this.socketToUser.get(socketId);
+    
+    if (odId) {
+      // Authenticated user disconnect
+      const session = this.userSessions.get(odId);
+      if (session) {
+        const room = this.rooms.get(session.roomId);
+        if (!room) {
+          this.removeUserSession(odId);
+          return { roomId: null, isPlayer: false, gracePeriod: 0, odId };
+        }
+
+        const isPlayer = session.role === 'host' || session.role === 'opponent';
+
+        if (session.role === 'spectator') {
+          // Spectators can be removed immediately (no grace period needed)
+          room.spectators.delete(odId);
+          this.removeUserSession(odId);
+          return { roomId: room.roomId, isPlayer: false, gracePeriod: 0, odId };
+        }
+
+        if (isPlayer && room.state === 'in_progress') {
+          // Mark user as disconnected but don't remove session yet
+          // The actual timeout/forfeit is handled by the socket handler
+          this.markUserDisconnected(odId);
+        }
+
+        return { 
+          roomId: session.roomId, 
+          isPlayer, 
+          gracePeriod: this.RECONNECT_GRACE_PERIOD,
+          odId 
+        };
+      }
+    }
+
+    // Anonymous user (socket-based tracking)
+    const roomId = this.playerRooms.get(socketId);
     if (!roomId) {
-      // Check spectators
+      // Check spectators (anonymous)
       for (const [, room] of this.rooms.entries()) {
-        if (room.spectators.has(playerId)) {
-          room.spectators.delete(playerId);
-          return { roomId: room.roomId, isPlayer: false, gracePeriod: 0 };
+        if (room.spectators.has(socketId)) {
+          room.spectators.delete(socketId);
+          return { roomId: room.roomId, isPlayer: false, gracePeriod: 0, odId: null };
         }
       }
-      return { roomId: null, isPlayer: false, gracePeriod: 0 };
+      return { roomId: null, isPlayer: false, gracePeriod: 0, odId: null };
     }
 
     const room = this.rooms.get(roomId);
-    if (!room) return { roomId: null, isPlayer: false, gracePeriod: 0 };
+    if (!room) return { roomId: null, isPlayer: false, gracePeriod: 0, odId: null };
 
-    const isHost = room.hostId === playerId;
-    const isOpponent = room.opponentId === playerId;
+    const isHost = room.hostId === socketId;
+    const isOpponent = room.opponentId === socketId;
     const isPlayer = isHost || isOpponent;
 
     if (isPlayer && room.state === 'in_progress') {
       // Set up reconnection timeout
       const timeout = setTimeout(async () => {
-        await this.leaveRoom(playerId);
-        this.disconnectedPlayers.delete(playerId);
+        await this.leaveRoom(socketId);
+        this.disconnectedPlayers.delete(socketId);
       }, this.RECONNECT_GRACE_PERIOD);
 
-      this.disconnectedPlayers.set(playerId, timeout);
+      this.disconnectedPlayers.set(socketId, timeout);
     }
 
-    return { roomId, isPlayer, gracePeriod: this.RECONNECT_GRACE_PERIOD };
+    return { roomId, isPlayer, gracePeriod: this.RECONNECT_GRACE_PERIOD, odId: null };
   }
 
   /**
    * Handle player reconnect
+   * @param socketId - Socket ID (for anonymous users)
+   * @param odId - User ID (for authenticated users)
    */
-  handleReconnect(playerId: string): Room | null {
-    const timeout = this.disconnectedPlayers.get(playerId);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.disconnectedPlayers.delete(playerId);
+  handleReconnect(socketId: string, odId?: string): Room | null {
+    // For authenticated users
+    if (odId) {
+      const timeout = this.disconnectedPlayers.get(odId);
+      if (timeout) {
+        clearTimeout(timeout);
+        this.disconnectedPlayers.delete(odId);
+      }
+
+      const session = this.userSessions.get(odId);
+      if (!session) return null;
+
+      return this.rooms.get(session.roomId) || null;
     }
 
-    const roomId = this.playerRooms.get(playerId);
+    // For anonymous users
+    const timeout = this.disconnectedPlayers.get(socketId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.disconnectedPlayers.delete(socketId);
+    }
+
+    const roomId = this.playerRooms.get(socketId);
     if (!roomId) return null;
 
     return this.rooms.get(roomId) || null;
@@ -572,9 +871,23 @@ export class RoomManager {
   /**
    * Check if player is in a room
    * Returns false if the player's room is finished (allowing them to create/join new rooms)
+   * @param socketId - Socket ID
+   * @param odId - User ID (for authenticated users)
    */
-  isPlayerInRoom(playerId: string): boolean {
-    const roomId = this.playerRooms.get(playerId);
+  isPlayerInRoom(socketId: string, odId?: string): boolean {
+    // Check by userId first for authenticated users
+    if (odId) {
+      const session = this.userSessions.get(odId);
+      if (session) {
+        const room = this.rooms.get(session.roomId);
+        if (room && room.state !== 'finished') {
+          return true;
+        }
+      }
+    }
+
+    // Check by socket ID
+    const roomId = this.playerRooms.get(socketId);
     if (!roomId) return false;
     
     const room = this.rooms.get(roomId);

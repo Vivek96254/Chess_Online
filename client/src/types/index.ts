@@ -131,3 +131,15 @@ export interface MoveResponse extends BaseResponse {
   move?: MoveRecord;
   gameState?: GameState;
 }
+
+// Session restoration types
+export interface SessionInfo {
+  roomId: string;
+  role: PlayerRole;
+  color: PlayerColor | null;
+}
+
+export interface SessionRestoreResponse extends BaseResponse {
+  session?: SessionInfo;
+  room?: Room;
+}

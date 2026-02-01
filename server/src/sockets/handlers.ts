@@ -18,15 +18,29 @@ import type {
   RoomResponse,
   BaseResponse,
   MoveResponse,
-  RoomSettings
+  RoomSettings,
+  SessionRestoreResponse,
+  SocketAuthData
 } from '../types/index.js';
 
-type ChessSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type ChessSocket = Socket<ClientToServerEvents, ServerToClientEvents> & {
+  data: SocketAuthData;
+};
 type ChessServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
 // Shared draw offers map across all socket connections
-// roomId -> offerer socket id
+// roomId -> offerer id (userId or socketId)
 const drawOffers = new Map<string, string>();
+
+/**
+ * Get the persistent player ID (userId for authenticated, socketId for anonymous)
+ */
+function getPlayerId(socket: ChessSocket): { socketId: string; odId?: string } {
+  return {
+    socketId: socket.id,
+    odId: socket.data?.userId
+  };
+}
 
 /**
  * Register all socket event handlers
@@ -36,23 +50,74 @@ export function registerSocketHandlers(
   socket: ChessSocket,
   roomManager: RoomManager
 ): void {
-  console.log(`🔌 Client connected: ${socket.id}`);
+  const { odId } = getPlayerId(socket);
+  const isAuthenticated = !!odId;
+  
+  console.log(`🔌 Client connected: ${socket.id}${isAuthenticated ? ` (user: ${odId})` : ' (anonymous)'}`);
+
+  // Handle session restoration for authenticated users
+  socket.on('session:restore', async (callback: (response: SessionRestoreResponse) => void) => {
+    try {
+      const { odId } = getPlayerId(socket);
+      
+      if (!odId) {
+        callback({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      const result = await roomManager.restoreSession(odId, socket.id);
+      
+      if (!result) {
+        callback({ success: false, error: 'No active session found' });
+        return;
+      }
+
+      const { room, session } = result;
+
+      // Rejoin the socket room
+      socket.join(room.roomId);
+
+      const serializedRoom = roomManager.serializeRoom(room);
+
+      // Notify room about reconnection
+      io.to(room.roomId).emit('player:reconnected', {
+        playerId: odId
+      });
+
+      callback({
+        success: true,
+        session: {
+          roomId: room.roomId,
+          role: session.role,
+          color: session.color
+        },
+        room: serializedRoom
+      });
+
+      console.log(`🔄 Session restored for ${odId} in room ${room.roomId}`);
+    } catch (error) {
+      console.error('Error restoring session:', error);
+      callback({ success: false, error: 'Failed to restore session' });
+    }
+  });
 
   // Handle room creation
   socket.on('room:create', async (payload: CreateRoomPayload, callback: (response: RoomResponse) => void) => {
     try {
       const validated = CreateRoomSchema.parse(payload);
+      const { socketId, odId } = getPlayerId(socket);
       
       // Check if player is already in a room
-      if (roomManager.isPlayerInRoom(socket.id)) {
+      if (roomManager.isPlayerInRoom(socketId, odId)) {
         callback({ success: false, error: 'Already in a room' });
         return;
       }
 
       const room = await roomManager.createRoom(
-        socket.id,
+        socketId,
         validated.playerName,
-        validated.settings
+        validated.settings,
+        odId // Pass userId for authenticated users
       );
 
       // Join socket room
@@ -63,11 +128,11 @@ export function registerSocketHandlers(
       callback({
         success: true,
         room: serializedRoom,
-        playerId: socket.id,
+        playerId: odId || socketId,
         color: 'white'
       });
 
-      console.log(`🏠 Room created: ${room.roomId} by ${validated.playerName}`);
+      console.log(`🏠 Room created: ${room.roomId} by ${validated.playerName}${odId ? ` (user: ${odId})` : ''}`);
     } catch (error) {
       console.error('Error creating room:', error);
       callback({ success: false, error: 'Failed to create room' });
@@ -78,17 +143,19 @@ export function registerSocketHandlers(
   socket.on('room:join', async (payload: JoinRoomPayload, callback: (response: RoomResponse) => void) => {
     try {
       const validated = JoinRoomSchema.parse(payload);
+      const { socketId, odId } = getPlayerId(socket);
       
       // Check if player is already in a room
-      if (roomManager.isPlayerInRoom(socket.id)) {
+      if (roomManager.isPlayerInRoom(socketId, odId)) {
         callback({ success: false, error: 'Already in a room' });
         return;
       }
 
       const result = await roomManager.joinRoom(
         validated.roomId,
-        socket.id,
-        validated.playerName
+        socketId,
+        validated.playerName,
+        odId // Pass userId for authenticated users
       );
 
       if (!result) {
@@ -102,11 +169,12 @@ export function registerSocketHandlers(
       socket.join(room.roomId);
 
       const serializedRoom = roomManager.serializeRoom(room);
+      const persistentId = odId || socketId;
 
       // Notify everyone in the room
       io.to(room.roomId).emit('player:joined', {
         player: {
-          odId: socket.id,
+          odId: persistentId,
           odName: validated.playerName,
           color,
           isConnected: true
@@ -122,14 +190,14 @@ export function registerSocketHandlers(
       callback({
         success: true,
         room: serializedRoom,
-        playerId: socket.id,
+        playerId: persistentId,
         color
       });
 
       // Notify public room list watchers
       io.emit('room:list-updated');
 
-      console.log(`👤 Player joined room ${room.roomId}: ${validated.playerName}`);
+      console.log(`👤 Player joined room ${room.roomId}: ${validated.playerName}${odId ? ` (user: ${odId})` : ''}`);
     } catch (error) {
       console.error('Error joining room:', error);
       callback({ success: false, error: 'Failed to join room' });
@@ -140,11 +208,13 @@ export function registerSocketHandlers(
   socket.on('room:spectate', async (payload: SpectateRoomPayload, callback: (response: RoomResponse) => void) => {
     try {
       const validated = SpectateRoomSchema.parse(payload);
+      const { socketId, odId } = getPlayerId(socket);
       
       const room = await roomManager.spectateRoom(
         validated.roomId,
-        socket.id,
-        validated.spectatorName || `Spectator-${socket.id.slice(0, 4)}`
+        socketId,
+        validated.spectatorName || `Spectator-${socketId.slice(0, 4)}`,
+        odId // Pass userId for authenticated users
       );
 
       if (!room) {
@@ -156,21 +226,22 @@ export function registerSocketHandlers(
       socket.join(room.roomId);
 
       const serializedRoom = roomManager.serializeRoom(room);
+      const persistentId = odId || socketId;
 
       // Notify room about new spectator
       io.to(room.roomId).emit('spectator:joined', {
-        spectatorId: socket.id,
-        name: validated.spectatorName || `Spectator-${socket.id.slice(0, 4)}`,
+        spectatorId: persistentId,
+        name: validated.spectatorName || `Spectator-${socketId.slice(0, 4)}`,
         count: room.spectators.size
       });
 
       callback({
         success: true,
         room: serializedRoom,
-        playerId: socket.id
+        playerId: persistentId
       });
 
-      console.log(`👁️ Spectator joined room ${room.roomId}`);
+      console.log(`👁️ Spectator joined room ${room.roomId}${odId ? ` (user: ${odId})` : ''}`);
     } catch (error) {
       console.error('Error spectating room:', error);
       callback({ success: false, error: 'Failed to spectate room' });
@@ -180,7 +251,9 @@ export function registerSocketHandlers(
   // Handle leaving a room
   socket.on('room:leave', async (callback: (response: BaseResponse) => void) => {
     try {
-      const { room, wasPlayer, shouldEndGame } = await roomManager.leaveRoom(socket.id);
+      const { socketId, odId } = getPlayerId(socket);
+      const { room, wasPlayer, shouldEndGame } = await roomManager.leaveRoom(socketId, odId);
+      const persistentId = odId || socketId;
 
       if (room) {
         socket.leave(room.roomId);
@@ -197,13 +270,13 @@ export function registerSocketHandlers(
 
         if (wasPlayer) {
           io.to(room.roomId).emit('player:left', {
-            playerId: socket.id,
+            playerId: persistentId,
             reason: 'Player left'
           });
         } else {
           const serializedRoom = roomManager.serializeRoom(room);
           io.to(room.roomId).emit('spectator:left', {
-            spectatorId: socket.id,
+            spectatorId: persistentId,
             count: serializedRoom.spectatorCount
           });
         }
@@ -220,13 +293,15 @@ export function registerSocketHandlers(
   socket.on('game:move', async (payload: MakeMovePayload, callback: (response: MoveResponse) => void) => {
     try {
       const validated = MakeMoveSchema.parse(payload);
+      const { socketId, odId } = getPlayerId(socket);
       
       const result = await roomManager.makeMove(
         validated.roomId,
-        socket.id,
+        socketId,
         validated.from,
         validated.to,
-        validated.promotion
+        validated.promotion,
+        odId // Pass userId for authenticated users
       );
 
       if (!result.success) {
@@ -270,7 +345,8 @@ export function registerSocketHandlers(
   // Handle resignation
   socket.on('game:resign', async (payload: { roomId: string }, callback: (response: BaseResponse) => void) => {
     try {
-      const gameState = await roomManager.resign(payload.roomId, socket.id);
+      const { socketId, odId } = getPlayerId(socket);
+      const gameState = await roomManager.resign(payload.roomId, socketId, odId);
 
       if (!gameState) {
         callback({ success: false, error: 'Cannot resign' });
@@ -301,22 +377,25 @@ export function registerSocketHandlers(
   // Draw offer/accept/decline
   socket.on('game:offer-draw', async (payload: { roomId: string }, callback: (response: BaseResponse) => void) => {
     try {
+      const { socketId, odId } = getPlayerId(socket);
+      const persistentId = odId || socketId;
+      
       const room = roomManager.getRoom(payload.roomId);
       if (!room || room.state !== 'in_progress') {
         callback({ success: false, error: 'Cannot offer draw' });
         return;
       }
 
-      const isPlayer = room.hostId === socket.id || room.opponentId === socket.id;
+      const isPlayer = room.hostId === persistentId || room.opponentId === persistentId;
       if (!isPlayer) {
         callback({ success: false, error: 'Not a player' });
         return;
       }
 
-      drawOffers.set(payload.roomId, socket.id);
+      drawOffers.set(payload.roomId, persistentId);
       
       // Notify everyone in the room (players and spectators)
-      io.to(payload.roomId).emit('draw:offered', { fromPlayerId: socket.id });
+      io.to(payload.roomId).emit('draw:offered', { fromPlayerId: persistentId });
       
       callback({ success: true });
     } catch (error) {
@@ -327,6 +406,9 @@ export function registerSocketHandlers(
 
   socket.on('game:accept-draw', async (payload: { roomId: string }, callback: (response: BaseResponse) => void) => {
     try {
+      const { socketId, odId } = getPlayerId(socket);
+      const persistentId = odId || socketId;
+      
       const offerer = drawOffers.get(payload.roomId);
       if (!offerer) {
         callback({ success: false, error: 'No draw offer to accept' });
@@ -334,7 +416,7 @@ export function registerSocketHandlers(
       }
 
       // Only the opponent (not the offerer) can accept
-      if (offerer === socket.id) {
+      if (offerer === persistentId) {
         callback({ success: false, error: 'Cannot accept your own draw offer' });
         return;
       }
@@ -346,7 +428,7 @@ export function registerSocketHandlers(
         return;
       }
 
-      const isPlayer = room.hostId === socket.id || room.opponentId === socket.id;
+      const isPlayer = room.hostId === persistentId || room.opponentId === persistentId;
       if (!isPlayer) {
         callback({ success: false, error: 'Only players can accept draw offers' });
         return;
@@ -393,6 +475,8 @@ export function registerSocketHandlers(
   socket.on('chat:send', async (payload: ChatMessagePayload, callback: (response: BaseResponse) => void) => {
     try {
       const validated = ChatMessageSchema.parse(payload);
+      const { socketId, odId } = getPlayerId(socket);
+      const persistentId = odId || socketId;
       
       const room = roomManager.getRoom(validated.roomId);
       if (!room) {
@@ -400,21 +484,21 @@ export function registerSocketHandlers(
         return;
       }
 
-      // Get sender name
+      // Get sender name using persistent ID
       let senderName = 'Unknown';
-      if (room.hostId === socket.id) {
+      if (room.hostId === persistentId) {
         senderName = room.hostName;
-      } else if (room.opponentId === socket.id) {
+      } else if (room.opponentId === persistentId) {
         senderName = room.opponentName || 'Opponent';
       } else {
-        const spectator = room.spectators.get(socket.id);
+        const spectator = room.spectators.get(persistentId);
         if (spectator) {
           senderName = spectator;
         }
       }
 
       io.to(validated.roomId).emit('chat:message', {
-        senderId: socket.id,
+        senderId: persistentId,
         senderName,
         message: validated.message,
         timestamp: Date.now()
@@ -610,24 +694,38 @@ export function registerSocketHandlers(
 
   // Handle disconnection
   socket.on('disconnect', async () => {
-    console.log(`🔌 Client disconnected: ${socket.id}`);
+    const { socketId, odId } = getPlayerId(socket);
+    console.log(`🔌 Client disconnected: ${socketId}${odId ? ` (user: ${odId})` : ''}`);
 
-    const { roomId, isPlayer, gracePeriod } = roomManager.handleDisconnect(socket.id);
+    const { roomId, isPlayer, gracePeriod, odId: disconnectedUserId } = roomManager.handleDisconnect(socketId);
+    const persistentId = disconnectedUserId || socketId;
 
     if (roomId) {
       if (isPlayer) {
         io.to(roomId).emit('player:disconnected', {
-          playerId: socket.id,
+          playerId: persistentId,
           gracePeriod
         });
 
         // Set up auto-forfeit after grace period
+        // For both authenticated and anonymous users, we emit the game:ended event here
         setTimeout(async () => {
           const room = roomManager.getRoom(roomId);
           if (room && room.state === 'in_progress') {
-            const stillDisconnected = !io.sockets.sockets.has(socket.id);
+            // Check if user reconnected
+            let stillDisconnected = false;
+            
+            if (disconnectedUserId) {
+              // For authenticated users, check if they have an active session
+              const session = roomManager.getUserSession(disconnectedUserId);
+              stillDisconnected = !session || !session.isConnected;
+            } else {
+              // For anonymous users, check if socket is still connected
+              stillDisconnected = !io.sockets.sockets.has(socketId);
+            }
+            
             if (stillDisconnected) {
-              const { shouldEndGame, room: updatedRoom } = await roomManager.leaveRoom(socket.id);
+              const { shouldEndGame, room: updatedRoom } = await roomManager.leaveRoom(socketId, disconnectedUserId || undefined);
               if (shouldEndGame && updatedRoom?.gameState) {
                 // Clear any pending draw offers
                 drawOffers.delete(roomId);
@@ -636,6 +734,8 @@ export function registerSocketHandlers(
                   gameState: updatedRoom.gameState,
                   reason: 'Player disconnected'
                 });
+                
+                console.log(`⏱️ Player ${persistentId} forfeited due to disconnect timeout`);
               }
             }
           }
@@ -644,7 +744,7 @@ export function registerSocketHandlers(
         const room = roomManager.getRoom(roomId);
         if (room) {
           io.to(roomId).emit('spectator:left', {
-            spectatorId: socket.id,
+            spectatorId: persistentId,
             count: room.spectators.size
           });
         }

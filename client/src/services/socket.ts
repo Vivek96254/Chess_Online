@@ -8,7 +8,8 @@ import type {
   MoveResponse,
   BaseResponse,
   ChatMessage,
-  RoomSettings
+  RoomSettings,
+  SessionRestoreResponse
 } from '../types';
 
 // Server URL from environment or default
@@ -36,6 +37,21 @@ interface SocketCallbacks {
   onDrawDeclined?: () => void;
   onRoomKicked?: (data: { roomId: string; reason: string }) => void;
   onRoomListUpdated?: () => void;
+  onSessionRestored?: (data: SessionRestoreResponse) => void;
+}
+
+// Function to get auth token from storage
+function getAuthToken(): string | null {
+  try {
+    const authStorage = localStorage.getItem('chess-auth-storage');
+    if (authStorage) {
+      const parsed = JSON.parse(authStorage);
+      return parsed?.state?.tokens?.accessToken || null;
+    }
+  } catch {
+    // Ignore parsing errors
+  }
+  return null;
 }
 
 class SocketService {
@@ -43,9 +59,10 @@ class SocketService {
   private callbacks: SocketCallbacks = {};
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private isAuthenticated = false;
 
   /**
-   * Connect to the server
+   * Connect to the server with optional JWT authentication
    */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -54,17 +71,23 @@ class SocketService {
         return;
       }
 
+      // Get auth token if available
+      const token = getAuthToken();
+      this.isAuthenticated = !!token;
+
       this.socket = io(SERVER_URL, {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        timeout: 20000
+        timeout: 20000,
+        // Send auth token if available
+        auth: token ? { token } : undefined
       });
 
       this.socket.on('connect', () => {
-        console.log('🔌 Connected to server');
+        console.log(`🔌 Connected to server${this.isAuthenticated ? ' (authenticated)' : ' (anonymous)'}`);
         this.reconnectAttempts = 0;
         this.callbacks.onConnect?.();
         resolve();
@@ -85,6 +108,13 @@ class SocketService {
 
       this.setupEventListeners();
     });
+  }
+
+  /**
+   * Check if socket is authenticated
+   */
+  isAuthenticatedConnection(): boolean {
+    return this.isAuthenticated;
   }
 
   /**
@@ -429,6 +459,41 @@ class SocketService {
         resolve(Date.now() - start);
       });
     });
+  }
+
+  /**
+   * Restore session for authenticated users
+   * This should be called after connecting to check if the user has an active game session
+   */
+  restoreSession(): Promise<SessionRestoreResponse> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+
+      if (!this.isAuthenticated) {
+        resolve({ success: false, error: 'Not authenticated' });
+        return;
+      }
+
+      this.socket.emit('session:restore', (response: SessionRestoreResponse) => {
+        if (response.success) {
+          console.log('🔄 Session restored:', response.session?.roomId);
+          this.callbacks.onSessionRestored?.(response);
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  /**
+   * Reconnect with fresh auth token (useful after login)
+   */
+  async reconnectWithAuth(): Promise<void> {
+    this.disconnect();
+    await new Promise(resolve => setTimeout(resolve, 100)); // Brief delay
+    return this.connect();
   }
 }
 

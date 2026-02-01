@@ -9,7 +9,8 @@ import type {
   ChatMessage,
   Piece,
   BoardState,
-  RoomSettings
+  RoomSettings,
+  PlayerRole
 } from '../types';
 
 interface GameStore {
@@ -23,6 +24,10 @@ interface GameStore {
   room: Room | null;
   playerColor: PlayerColor | null;
   isSpectator: boolean;
+
+  // Session restoration state
+  sessionRestoring: boolean;
+  sessionRestored: boolean;
 
   // Game state
   gameState: GameState | null;
@@ -64,6 +69,7 @@ interface GameStore {
   clearNotification: () => void;
   setPromotionPending: (data: { from: string; to: string } | null) => void;
   getBoardState: () => BoardState;
+  restoreSession: () => Promise<{ roomId: string; role: PlayerRole; color: PlayerColor | null } | null>;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -76,6 +82,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   room: null,
   playerColor: null,
   isSpectator: false,
+
+  // Session restoration state
+  sessionRestoring: false,
+  sessionRestored: false,
 
   gameState: null,
   chess: null,
@@ -99,7 +109,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   connect: async () => {
-    set({ connectionStatus: 'connecting' });
+    set({ connectionStatus: 'connecting', sessionRestored: false, sessionRestoring: false });
     
     try {
       await socketService.connect();
@@ -111,6 +121,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
             connectionStatus: 'connected',
             playerId: socketService.getSocketId()
           });
+          
+          // Automatically try to restore session for authenticated users
+          if (socketService.isAuthenticatedConnection()) {
+            get().restoreSession();
+          } else {
+            set({ sessionRestored: true });
+          }
         },
         onDisconnect: () => {
           set({ connectionStatus: 'disconnected' });
@@ -516,6 +533,49 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const response = await socketService.updateRoomSettings(room.roomId, settings);
     if (!response.success) {
       set({ notification: { type: 'error', message: response.error || 'Failed to update room settings' } });
+    }
+  },
+
+  restoreSession: async () => {
+    // Only try to restore if authenticated
+    if (!socketService.isAuthenticatedConnection()) {
+      set({ sessionRestored: true, sessionRestoring: false });
+      return null;
+    }
+
+    set({ sessionRestoring: true });
+
+    try {
+      const response = await socketService.restoreSession();
+
+      if (response.success && response.session && response.room) {
+        const { session, room } = response;
+        const chess = room.gameState ? new Chess(room.gameState.fen) : null;
+        const isSpectator = session.role === 'spectator';
+        
+        set({
+          room,
+          playerId: room.hostId === session.roomId ? room.hostId : room.opponentId,
+          playerColor: session.color,
+          isSpectator,
+          gameState: room.gameState,
+          chess,
+          isFlipped: session.color === 'black',
+          sessionRestored: true,
+          sessionRestoring: false,
+          notification: { type: 'success', message: 'Session restored! Welcome back.' }
+        });
+
+        console.log(`🔄 Session restored: room ${session.roomId}, role ${session.role}`);
+        return session;
+      } else {
+        set({ sessionRestored: true, sessionRestoring: false });
+        return null;
+      }
+    } catch (error) {
+      console.error('Failed to restore session:', error);
+      set({ sessionRestored: true, sessionRestoring: false });
+      return null;
     }
   }
 }));

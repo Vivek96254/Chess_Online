@@ -194,6 +194,37 @@ app.get('/api/rooms/:roomId', (req, res) => {
   res.json({ room: roomManager.serializeRoom(room) });
 });
 
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  try {
+    // Check for JWT token in auth header, handshake query, or auth object
+    const token = 
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace('Bearer ', '') ||
+      socket.handshake.query?.token;
+
+    if (token && authService) {
+      // Verify the token
+      const decoded = authService.verifyAccessToken(token as string);
+      if (decoded) {
+        // Attach user data to socket
+        socket.data = {
+          userId: decoded.userId,
+          username: decoded.username
+        };
+        console.log(`🔐 Authenticated socket for user: ${decoded.username}`);
+      }
+    }
+    
+    // Always allow connection (auth is optional for guest play)
+    next();
+  } catch (error) {
+    // Invalid token - still allow connection as anonymous user
+    console.log(`⚠️ Socket auth failed, connecting as anonymous`);
+    next();
+  }
+});
+
 // Socket.IO connection handler
 io.on('connection', (socket) => {
   registerSocketHandlers(io, socket, roomManager);
